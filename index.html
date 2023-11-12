@@ -23,7 +23,13 @@
 <!--    }-->
 <!--</style>-->
 <script>
-    function Bullet(app, x, y, direction, impulse, size, color) {
+    /**
+     * Returns a random number between min (inclusive) and max (exclusive)
+     */
+    function getRandomArbitrary(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+    function Projectile(app, x, y, direction, impulse, size, color) {
         this.app = app;
         this.x = x;
         this.y = y;
@@ -31,6 +37,7 @@
         this.impulse = impulse || 5;
         this.size = size || 2;
         this.color = color || '#eed202';
+        this.gravity = 0;
 
         this.draw = function () {
             const self = this;
@@ -45,7 +52,16 @@
 
         this.move = function () {
             const self = this;
+            if (self.impulse > 0) {
+                self.impulse = self.impulse - 0.01;
+            }
+            self.gravity = self.gravity + 0.02;
+
+            const directionModifyer = (Math.random() - 0.5) / 50;
+            self.direction = self.direction + directionModifyer;
+
             const newPos = self.app.findPointInDirection(self.x, self.y, self.direction, self.impulse);
+            newPos.y = newPos.y + self.gravity;
             self.x = newPos.x;
             self.y = newPos.y;
         };
@@ -58,6 +74,10 @@
         gun: {},
         bulletsmax: 100,
         bullets: [],
+        meteoritesmax: 100,
+        meteoritesinterval: 5000,
+        meteorites: [],
+        meteoritesGenerator: null,
         init: function init() {
             window.addEventListener("contextmenu", function(e) { e.preventDefault(); })
 
@@ -81,6 +101,25 @@
                 document.getElementById('buttonright').addEventListener(eventName, function () {APP.gun.turn = ''});
             });
 
+            APP.meteoritesGenerator = setInterval(function (app) {
+                if (APP.meteorites.length < APP.meteoritesmax) {
+                    // x, y, direction, impulse, size, color
+                    const meteotite = new Projectile(
+                        APP,
+                        getRandomArbitrary(0, APP.screenSize.x), //x,
+                        0, // y,
+                        Math.PI*Math.random(),// Math.PI*0.5,
+                        0, // impulse,
+                        10, // size,
+                        '#666666', // color
+                    );
+                    APP.meteorites.push(meteotite);
+                }
+                if (APP.meteoritesinterval > 0) {
+                    APP.meteoritesinterval = APP.meteoritesinterval - 1;
+                }
+            }, APP.meteoritesinterval, APP)
+
             APP.initGun();
         },
         mainLoop: function mainLoop() {
@@ -102,21 +141,31 @@
             if (APP.gun.turn === 'right') {
                 APP.gunTurnRight();
             }
+            APP.drawGun();
             if (APP.gun.fire) {
                 APP.gunFire();
             }
-
-            APP.drawGun();
 
             APP.bullets.forEach(function (bullet) {
                 bullet.move();
                 bullet.draw();
             });
-
             if (APP.bullets.length > APP.bulletsmax) {
                 let spareBullet  = APP.bullets.shift();
                 delete spareBullet;
             }
+
+
+            if (APP.meteorites.length < APP.meteoritesmax) {
+
+
+            }
+            APP.meteorites.forEach(function (meteorite) {
+                meteorite.move();
+                meteorite.draw();
+            });
+
+            //
 
 
         },
@@ -158,11 +207,12 @@
 
             // todo
 
-            const x = APP.gun.barrel.muzzle.x;
-            const y = APP.gun.barrel.muzzle.y;
-            // APP.drawExplosionAt(x, y, 10);
-
-            APP.bullets.push(new Bullet(APP, x, y, APP.gun.angle));
+            const muzzleFire = APP.findPointInDirection(
+                APP.gun.barrel.muzzle.x,
+                APP.gun.barrel.muzzle.y,
+                APP.gun.angle, 5);
+            APP.drawExplosionAt(muzzleFire.x, muzzleFire.y, 5);
+            APP.bullets.push(new Projectile(APP, muzzleFire.x, muzzleFire.y, APP.gun.angle));
         },
         gunTurnRight: function gunTurnRight() {
             if(APP.gun.angle < Math.PI*2) {
