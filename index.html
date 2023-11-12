@@ -187,6 +187,11 @@
 
             APP.factories.forEach(function (factory, index) {
                 factory.draw();
+                if (APP.loopCounter%100 === 0) {
+                    let score = document.getElementById('score').value;
+                    score = Number(score) + Math.floor(factory.size * 10);
+                    document.getElementById('score').value = score;
+                }
             });
 
         },
@@ -394,6 +399,22 @@
                 <path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z"/>
             </svg>
         </button>
+    </div>
+    <div>
+        <h2>Rules</h2>
+        <ol>
+            <li>Factories brings you resources (gems)</li>
+            <li>Destroying meteorites bring you resources (gems)</li>
+            <li>Shooting costs you resources (gems)</li>
+            <li>Meteorites can destroy your factories</li>
+            <li>Meteorites can destroy the turret</li>
+            <li>Your bullet can destroy your factories</li>
+            <li>Your bullet can destroy the turret</li>
+            <li>Meteorites can destroy the turret</li>
+            <li>The turret has some lives (hearts)</li>
+            <li>If you have no resources (gems) - you lose</li>
+            <li>If you have no lives (hearts) - you lose</li>
+        </ol>
     </div>
     <script>
         APP.newGame();
