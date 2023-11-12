@@ -23,12 +23,41 @@
 <!--    }-->
 <!--</style>-->
 <script>
-    var APP = {
+    function Bullet(app, x, y, direction, impulse, size, color) {
+        this.app = app;
+        this.x = x;
+        this.y = y;
+        this.direction = direction;
+        this.impulse = impulse || 5;
+        this.size = size || 2;
+        this.color = color || '#eed202';
+
+        this.draw = function () {
+            const self = this;
+            self.app.context.beginPath();
+            self.app.context.arc(self.x, self.y, self.size, 0, 2 * Math.PI, false);
+            self.app.context.fillStyle = self.color;
+            self.app.context.fill();
+            self.app.context.lineWidth = 1;
+            self.app.context.strokeStyle = self.color;
+            self.app.context.stroke();
+        };
+
+        this.move = function () {
+            const self = this;
+            const newPos = self.app.findPointInDirection(self.x, self.y, self.direction, self.impulse);
+            self.x = newPos.x;
+            self.y = newPos.y;
+        };
+    }
+    const APP = {
         canvas: null,
         context: null,
         gameOver: false,
         screenSize: {x: 640, y: 480},
         gun: {},
+        bulletsmax: 100,
+        bullets: [],
         init: function init() {
             window.addEventListener("contextmenu", function(e) { e.preventDefault(); })
 
@@ -79,6 +108,15 @@
 
             APP.drawGun();
 
+            APP.bullets.forEach(function (bullet) {
+                bullet.move();
+                bullet.draw();
+            });
+
+            if (APP.bullets.length > APP.bulletsmax) {
+                let spareBullet  = APP.bullets.shift();
+                delete spareBullet;
+            }
 
 
         },
@@ -113,7 +151,7 @@
         },
         gunTurnLeft: function gunTurnLeft() {
             if(APP.gun.angle > Math.PI) {
-                APP.gun.angle = APP.gun.angle - 0.01;
+                APP.gun.angle = APP.gun.angle - APP.gun.speed;
             }
         },
         gunFire: function gunFire() {
@@ -122,11 +160,13 @@
 
             const x = APP.gun.barrel.muzzle.x;
             const y = APP.gun.barrel.muzzle.y;
-            APP.drawExplosionAt(x, y, 10);
+            // APP.drawExplosionAt(x, y, 10);
+
+            APP.bullets.push(new Bullet(APP, x, y, APP.gun.angle));
         },
         gunTurnRight: function gunTurnRight() {
             if(APP.gun.angle < Math.PI*2) {
-                APP.gun.angle = APP.gun.angle + 0.01;
+                APP.gun.angle = APP.gun.angle + APP.gun.speed;
             }
         },
         clearScreen: function clearScreen () {
@@ -176,6 +216,7 @@
                     }
                 },
                 turn: '', // 'left' '' 'right'
+                speed: 0.05,
                 fire: false, // false true
                 length: length,
                 angle: Math.PI*1.5 // Angle Math.PI - right, Math.PI*0.5 - down, Math.PI*1 - left, Math.PI*1.5 - top
@@ -210,10 +251,18 @@
     <header>
         <div class="row justify-content-md-center">
             <div class="col-auto">
-                <label for="score">Score</label><input id="score" type="text" value="0" disabled="disabled"/>
+                <label for="score">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-gem" viewBox="0 0 16 16">
+                        <path d="M3.1.7a.5.5 0 0 1 .4-.2h9a.5.5 0 0 1 .4.2l2.976 3.974c.149.185.156.45.01.644L8.4 15.3a.5.5 0 0 1-.8 0L.1 5.3a.5.5 0 0 1 0-.6l3-4zm11.386 3.785-1.806-2.41-.776 2.413 2.582-.003zm-3.633.004.961-2.989H4.186l.963 2.995 5.704-.006zM5.47 5.495 8 13.366l2.532-7.876-5.062.005zm-1.371-.999-.78-2.422-1.818 2.425 2.598-.003zM1.499 5.5l5.113 6.817-2.192-6.82L1.5 5.5zm7.889 6.817 5.123-6.83-2.928.002-2.195 6.828z"/>
+                    </svg>
+                </label> <input id="score" type="text" value="0" disabled="disabled"/>
             </div>
             <div class="col-auto">
-                <label for="lives">Lives</label><input id="lives" type="text" value="3" disabled="disabled"/>
+                <label for="lives">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-suit-heart-fill" viewBox="0 0 16 16">
+                        <path d="M4 1c2.21 0 4 1.755 4 3.92C8 2.755 9.79 1 12 1s4 1.755 4 3.92c0 3.263-3.234 4.414-7.608 9.608a.513.513 0 0 1-.784 0C3.234 9.334 0 8.183 0 4.92 0 2.755 1.79 1 4 1z"/>
+                    </svg>
+                </label> <input id="lives" type="text" value="3" disabled="disabled"/>
             </div>
         </div>
     </header>
