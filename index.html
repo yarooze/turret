@@ -25,6 +25,10 @@
 
         this.draw = function () {
             const self = this;
+
+            if ((this.y + this.size) < app.screenSize.y) {
+                this.y = app.screenSize.y - this.size;
+            }
             self.app.context.beginPath();
             self.app.context.lineWidth = "6";
             self.app.context.strokeStyle = "#666666";
@@ -33,6 +37,28 @@
             self.app.context.rect(self.x, self.y, self.size, self.size);
             self.app.context.fillStyle = self.color;
             self.app.context.fill();
+        };
+
+        this.collision = function (x1, y1, x2, y2) {
+            const self = this;
+            if (
+                (x1 < self.x + self.size) &&
+                (y1 < self.y + self.size) &&
+                (x1 > self.x - self.size) &&
+                (y1 > self.y - self.size)
+            ) {
+                return true;
+            }
+            if (
+                (x2 < self.x - self.size) &&
+                (y2 < self.y - self.size) &&
+                (x2 > self.x + self.size) &&
+                (y2 > self.y + self.size)
+            ) {
+                return true;
+            }
+
+            return false;
         };
     }
     function Projectile(app, x, y, direction, impulse, size, color) {
@@ -102,7 +128,7 @@
         gameOver: false,
         screenSize: {x: 640, y: 480},
         gun: {},
-        bulletsmax: 100,
+        bulletsmax: 1000,
         bullets: [],
         meteoritesmax: 100,
         meteoritesinterval: 5000,
@@ -150,11 +176,6 @@
             }
 
             if (APP.gameOver === true) {
-                // if (document.getElementById('score').value >= APP.useInvaders) {
-                //     alert('You win!');
-                // } else {
-                //     alert('GAME OVER');
-                // }
                 alert('GAME OVER');
                 APP.newGame();
                 return;
@@ -185,6 +206,20 @@
                 bullet.move();
                 bullet.draw();
 
+                // gun hit?
+                if (bullet.collision(
+                    APP.gun.body.x-APP.gun.body.size,
+                    APP.gun.body.y-APP.gun.body.size,
+                    APP.gun.body.x+APP.gun.body.size,
+                    APP.gun.body.y+APP.gun.body.size
+                )) {
+                    APP.drawExplosionAt(bullet.x, bullet.y, 10);
+                    document.getElementById('lives').value = Number(document.getElementById('lives').value) - 1;
+                    APP.bullets.splice(bulletIndex, 1);
+                    return;
+                }
+
+                // meteorite hit?
                 APP.meteorites.forEach(function (meteorite, meteoriteIndex) {
                     if(meteorite.collision(bullet.x, bullet.y, bullet.x+bullet.size, bullet.y+bullet.size)) {
                         meteorite.size = meteorite.size- (bullet.size*2);
@@ -197,6 +232,21 @@
                         }
                         APP.bullets.splice(bulletIndex, 1);
                         APP.addGems(100);
+                        return;
+                    }
+                });
+
+                // factory hit?
+                APP.factories.forEach(function (factory, factoryIndex) {
+                    if(factory.collision(bullet.x-bullet.size, bullet.y-bullet.size, bullet.x+bullet.size, bullet.y+bullet.size)) {
+                        factory.size = factory.size - bullet.size;
+                        APP.drawExplosionAt(bullet.x, bullet.y, 10);
+                        if (factory.size < 1) {
+                            APP.factories.splice(factoryIndex, 1);
+                            APP.context.font = "48px serif";
+                            APP.context.fillText("KABOOM!", bullet.x, bullet.y);
+                        }
+                        APP.bullets.splice(bulletIndex, 1);
                         return;
                     }
                 });
@@ -216,6 +266,35 @@
                 meteorite.draw();
             });
 
+            APP.meteorites.forEach(function (meteorite, meteoriteIndex) {
+                // meteorite hits gun?
+                if (meteorite.collision(
+                    APP.gun.body.x-APP.gun.body.size,
+                    APP.gun.body.y-APP.gun.body.size,
+                    APP.gun.body.x+APP.gun.body.size,
+                    APP.gun.body.y+APP.gun.body.size
+                )) {
+                    APP.drawExplosionAt(meteorite.x, meteorite.y, 20);
+                    document.getElementById('lives').value = Number(document.getElementById('lives').value) - 1;
+                    APP.meteorites.splice(meteoriteIndex, 1);
+                    return;
+                }
+                // meteorite hits factory?
+                APP.factories.forEach(function (factory, factoryIndex) {
+                    if(factory.collision(meteorite.x-meteorite.size, meteorite.y-meteorite.size, meteorite.x+meteorite.size, meteorite.y+meteorite.size)) {
+                        factory.size = factory.size - meteorite.size;
+                        APP.drawExplosionAt(meteorite.x, meteorite.y, 20);
+                        if (factory.size < 1) {
+                            APP.factories.splice(factoryIndex, 1);
+                            APP.context.font = "48px serif";
+                            APP.context.fillText("KABOOM!", meteorite.x, meteorite.y);
+                        }
+                        APP.meteorites.splice(meteoriteIndex, 1);
+                        return;
+                    }
+                });
+            });
+
             if (APP.loopCounter%100 === 0) {
                 const addNumber = String(APP.loopCounter).length - 2;
                 for (let i=0;i<addNumber;i++) {
@@ -230,7 +309,19 @@
                     gems = gems + Math.floor(factory.size);
                     document.getElementById('gems').value = gems;
                 }
+                if (APP.loopCounter%1000 === 0 && rndNum(0,10) < 2) {
+                    let lives = Number(document.getElementById('lives').value);
+                    lives = lives + 1;
+                    document.getElementById('lives').value = lives;
+                }
             });
+
+            if (Number(document.getElementById('gems').value) < 1 && APP.factories.length < 1) {
+                APP.gameOver = true;
+            }
+            if (Number(document.getElementById('lives').value) < 1) {
+                APP.gameOver = true;
+            }
 
         },
         addGems: function addGems(add) {
@@ -469,16 +560,17 @@
         <h3>Rules</h3>
         <div>
             <ol>
-                <li>Factories brings you resources (gems)</li>
-                <li>Destroying meteorites bring you resources (gems)</li>
+                <li>Factories bring you resources (gems) and sometimes extra lives (heart)</li>
+                <li>Larger factories bring more resources (gems)</li>
+                <li>Destroying meteorites brings you resources (gems)</li>
                 <li>Shooting costs you resources (gems)</li>
                 <li>Meteorites can destroy your factories</li>
                 <li>Meteorites can destroy the turret</li>
-                <li>Your bullet can destroy your factories</li>
-                <li>Your bullet can destroy the turret</li>
+                <li>Your bullets can destroy the factories</li>
+                <li>Your bullets can destroy the turret</li>
                 <li>Meteorites can destroy the turret</li>
                 <li>The turret has some lives (hearts)</li>
-                <li>If you have no resources (gems) - you lose</li>
+                <li>If you have no factories and no resources (gems) - you lose</li>
                 <li>If you have no lives (hearts) - you lose</li>
             </ol>
         </div>
