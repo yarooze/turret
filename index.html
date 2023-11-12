@@ -9,19 +9,6 @@
 <!--    <script src="/js/turret.js"></script>-->
 </head>
 <body>
-<!--<style>-->
-<!--    body {-->
-<!--        margin: 0px;-->
-<!--        padding: 0px;-->
-<!--    }-->
-<!--    header {-->
-<!--        text-align: center;-->
-<!--    }-->
-<!--    #main {-->
-<!--        text-align: center;-->
-<!--        margin-top: 20px;-->
-<!--    }-->
-<!--</style>-->
 <script>
     /**
      * Returns a random number between min (inclusive) and max (exclusive)
@@ -87,6 +74,7 @@
     }
     const APP = {
         loopCounter: 0,
+        startTime: null,
         canvas: null,
         context: null,
         gameOver: false,
@@ -100,12 +88,12 @@
         factoriesMax: 12,
         factories: [],
         init: function init() {
-            window.addEventListener("contextmenu", function(e) { e.preventDefault(); })
 
+            window.addEventListener("contextmenu", function(e) { e.preventDefault(); })
             document.getElementById('score').value = 0;
             document.getElementById('lives').value = 3;
             document.getElementById('gems').value = 100;
-            document.getElementById('time').value = 0;
+            document.getElementById('time').value = '';
             APP.gameOver = false;
             APP.canvas  = document.getElementById('myCanvas');
             APP.context = APP.canvas.getContext('2d');
@@ -128,9 +116,17 @@
 
             APP.initFactories();
 
+            APP.startTime = new Date();
         },
         mainLoop: function mainLoop() {
             APP.loopCounter++;
+            const timeNow = new Date();
+            const timeLast = timeNow - APP.startTime;
+            document.getElementById('time').value = new Date(timeLast).toISOString().slice(11, 19);
+            if (Number(document.getElementById('gems').value) > Number(document.getElementById('score').value)) {
+                document.getElementById('score').value = Number(document.getElementById('gems').value);
+            }
+
             if (APP.gameOver === true) {
                 // if (document.getElementById('score').value >= APP.useInvaders) {
                 //     alert('You win!');
@@ -335,7 +331,7 @@
             let lastPos = 0;
             let newPos = 0;
             for (let i=0; i<APP.factoriesMax;i++) {
-                newPos = lastPos+10;
+                newPos = lastPos+10+rndNum(0,10);
 
                 if (
                     (newPos > (APP.gun.body.x-APP.gun.body.size-100)) &&
@@ -407,6 +403,7 @@
     <div id="main" class="container">
         <canvas id="myCanvas" width="640" height="480"></canvas>
     </div>
+    <hr />
     <div class="container">
         <button id="buttonleft" type="button" class="btn btn-info" title="left">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-caret-left-fill" viewBox="0 0 16 16">
