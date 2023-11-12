@@ -147,9 +147,12 @@
             document.getElementById('lives').value = 3;
             document.getElementById('gems').value = 100;
             document.getElementById('time').value = '';
+            document.getElementById('gamespeed').value = 100;
             APP.gameOver = false;
+
             APP.canvas  = document.getElementById('myCanvas');
             APP.context = APP.canvas.getContext('2d');
+
             document.addEventListener("keypress", APP.controls);
             document.addEventListener("keydown", APP.controls);
             document.addEventListener("keyup", APP.controls);
@@ -166,7 +169,6 @@
             });
 
             APP.initGun();
-
             APP.initFactories();
 
             APP.startTime = new Date();
@@ -185,7 +187,18 @@
                 APP.newGame();
                 return;
             }
-            APP.loopId = requestAnimationFrame(APP.mainLoop);
+
+            const gamespeed = Number(document.getElementById('gamespeed').value);
+            if (gamespeed < 100) {
+                const delay = 100 - gamespeed;
+                setTimeout(function (APP) {
+                    APP.loopId = requestAnimationFrame(APP.mainLoop);
+                }, delay, APP);
+            } else {
+                APP.loopId = requestAnimationFrame(APP.mainLoop);
+            }
+
+
             APP.clearScreen();
 
             if (APP.gun.turn === 'left') {
@@ -560,6 +573,9 @@
             </svg>
         </button>
     </div>
+    <hr />
+    <label for="gamespeed" class="form-label">Game speed</label>
+    <input type="range" class="form-range" id="gamespeed" value="100">
     <hr />
     <div>
         <h3>Rules</h3>
