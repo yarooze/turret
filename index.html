@@ -71,6 +71,28 @@
             self.x = newPos.x;
             self.y = newPos.y;
         };
+
+        this.collision = function (x1, y1, x2, y2) {
+            const self = this;
+            if (
+                (x1 < self.x + self.size) &&
+                (y1 < self.y + self.size) &&
+                (x1 > self.x - self.size) &&
+                (y1 > self.y - self.size)
+            ) {
+                return true;
+            }
+            if (
+                (x2 < self.x - self.size) &&
+                (y2 < self.y - self.size) &&
+                (x2 > self.x + self.size) &&
+                (y2 > self.y + self.size)
+            ) {
+                return true;
+            }
+
+            return false;
+        };
     }
     const APP = {
         loopCounter: 0,
@@ -155,13 +177,30 @@
                 let spareBullet  = APP.bullets.shift();
                 delete spareBullet;
             }
-            APP.bullets.forEach(function (bullet, index) {
+            APP.bullets.forEach(function (bullet, bulletIndex) {
                 if (bullet.y > APP.screenSize.y) {
-                    APP.bullets.splice(index, 1);
+                    APP.bullets.splice(bulletIndex, 1);
                     return;
                 }
                 bullet.move();
                 bullet.draw();
+
+                APP.meteorites.forEach(function (meteorite, meteoriteIndex) {
+                    if(meteorite.collision(bullet.x, bullet.y, bullet.x+bullet.size, bullet.y+bullet.size)) {
+                        meteorite.size = meteorite.size- (bullet.size*2);
+                        APP.drawExplosionAt(bullet.x, bullet.y, 10);
+                        if (meteorite.size < 1) {
+                            APP.meteorites.splice(meteoriteIndex, 1);
+                            APP.addGems(1000);
+                            APP.context.font = "48px serif";
+                            APP.context.fillText("1000", bullet.x, bullet.y);
+                        }
+                        APP.bullets.splice(bulletIndex, 1);
+                        APP.addGems(100);
+                        return;
+                    }
+                });
+
             });
 
             if (APP.meteorites.length > APP.meteoritesmax) {
@@ -193,6 +232,9 @@
                 }
             });
 
+        },
+        addGems: function addGems(add) {
+            document.getElementById('gems').value = Number(document.getElementById('gems').value) + add;
         },
         newGame: function newGame() {
             APP.init();
