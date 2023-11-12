@@ -29,6 +29,20 @@
     function getRandomArbitrary(min, max) {
         return Math.random() * (max - min) + min;
     }
+    function Factory (app, x, size) {
+        this.app = app;
+        this.x = x;
+        this.size = size || 10;
+        this.y = app.screenSize.y - this.size;
+        this.color = '#0000aa';
+
+        this.draw = function () {
+            const self = this;
+            ctx.rect(self.x, self.y, self.x+self.size, self.y+self.size);
+            ctx.fillStyle = self.color;
+            ctx.fill();
+        };
+    }
     function Projectile(app, x, y, direction, impulse, size, color) {
         this.app = app;
         this.x = x;
@@ -67,6 +81,7 @@
         };
     }
     const APP = {
+        loopCounter: 0,
         canvas: null,
         context: null,
         gameOver: false,
@@ -77,7 +92,6 @@
         meteoritesmax: 100,
         meteoritesinterval: 5000,
         meteorites: [],
-        meteoritesGenerator: null,
         init: function init() {
             window.addEventListener("contextmenu", function(e) { e.preventDefault(); })
 
@@ -101,28 +115,10 @@
                 document.getElementById('buttonright').addEventListener(eventName, function () {APP.gun.turn = ''});
             });
 
-            APP.meteoritesGenerator = setInterval(function (app) {
-                if (APP.meteorites.length < APP.meteoritesmax) {
-                    // x, y, direction, impulse, size, color
-                    const meteotite = new Projectile(
-                        APP,
-                        getRandomArbitrary(0, APP.screenSize.x), //x,
-                        0, // y,
-                        Math.PI*Math.random(),// Math.PI*0.5,
-                        0, // impulse,
-                        10, // size,
-                        '#666666', // color
-                    );
-                    APP.meteorites.push(meteotite);
-                }
-                if (APP.meteoritesinterval > 0) {
-                    APP.meteoritesinterval = APP.meteoritesinterval - 1;
-                }
-            }, APP.meteoritesinterval, APP)
-
             APP.initGun();
         },
         mainLoop: function mainLoop() {
+            APP.loopCounter++;
             if (APP.gameOver === true) {
                 if (document.getElementById('score').value >= APP.useInvaders) {
                     alert('You win!');
@@ -146,27 +142,39 @@
                 APP.gunFire();
             }
 
-            APP.bullets.forEach(function (bullet) {
-                bullet.move();
-                bullet.draw();
-            });
             if (APP.bullets.length > APP.bulletsmax) {
                 let spareBullet  = APP.bullets.shift();
                 delete spareBullet;
             }
+            APP.bullets.forEach(function (bullet, index) {
+                if (bullet.y > APP.screenSize.y) {
+                    APP.bullets.splice(index, 1);
+                    return;
+                }
+                bullet.move();
+                bullet.draw();
+            });
 
-
-            if (APP.meteorites.length < APP.meteoritesmax) {
-
-
+            if (APP.meteorites.length > APP.meteoritesmax) {
+                let spareMeteorite  = APP.meteorites.shift();
+                delete spareMeteorite;
             }
-            APP.meteorites.forEach(function (meteorite) {
+            APP.meteorites.forEach(function (meteorite, index) {
+                if (meteorite.y > APP.screenSize.y) {
+                    APP.meteorites.splice(index, 1);
+                    return;
+                }
                 meteorite.move();
                 meteorite.draw();
             });
 
-            //
 
+            if (APP.loopCounter%100 === 0) {
+                const addNumber = String(APP.loopCounter).length - 2;
+                for (let i=0;i<addNumber;i++) {
+                    APP.meteoritesGenerator();
+                }
+            }
 
         },
         newGame: function newGame() {
@@ -294,6 +302,21 @@
             ctx.lineTo(gun.barrel.muzzle.x, gun.barrel.muzzle.y);
             ctx.lineWidth = 5;
             ctx.stroke();
+        },
+        meteoritesGenerator: function meteoritesGenerator() {
+            if (APP.meteorites.length < APP.meteoritesmax) {
+                // x, y, direction, impulse, size, color
+                const meteotite = new Projectile(
+                    APP,
+                    getRandomArbitrary(0, APP.screenSize.x), //x,
+                    0, // y,
+                    Math.PI*Math.random(),// Math.PI*0.5,
+                    0, // impulse,
+                    10, // size,
+                    '#666666', // color
+                );
+                APP.meteorites.push(meteotite);
+            }
         },
     };
 </script>
