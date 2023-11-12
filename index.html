@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>Turret</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+<!--    <link type="text/css" rel="stylesheet" media="all" href="css/turret.css"/>-->
+<!--    <script src="/js/turret.js"></script>-->
+</head>
+<body>
+<!--<style>-->
+<!--    body {-->
+<!--        margin: 0px;-->
+<!--        padding: 0px;-->
+<!--    }-->
+<!--    header {-->
+<!--        text-align: center;-->
+<!--    }-->
+<!--    #main {-->
+<!--        text-align: center;-->
+<!--        margin-top: 20px;-->
+<!--    }-->
+<!--</style>-->
+<script>
+    var APP = {
+        canvas: null,
+        context: null,
+        gameOver: false,
+        screenSize: {x: 640, y: 480},
+        gun: {},
+        init: function init() {
+            document.getElementById('score').value = 0;
+            document.getElementById('lives').value = 3;
+            APP.gameOver = false;
+            APP.canvas  = document.getElementById('myCanvas');
+            APP.context = APP.canvas.getContext('2d');
+            document.addEventListener("keypress", APP.controls);
+            document.addEventListener("keydown", APP.controls);
+            APP.initGun();
+
+
+
+        },
+        mainLoop: function mainLoop() {
+            if (APP.gameOver === true) {
+                if (document.getElementById('score').value >= APP.useInvaders) {
+                    alert('You win!');
+                } else {
+                    alert('GAME OVER');
+                }
+                APP.newGame();
+                return;
+            }
+            APP.loopId = requestAnimationFrame(APP.mainLoop);
+            APP.clearScreen();
+
+            APP.drawGun();
+
+
+
+        },
+        newGame: function newGame() {
+            APP.init();
+            APP.mainLoop();
+        },
+        controls: function controls(event) {
+            if (event == null) {
+                APP.ship.direction = 0;
+                return;
+            } else if (event.keyCode === 0 || event.keyCode === 32) {
+                APP.gunFire();
+            } else if (event.keyCode === 37) { // left
+                // APP.gun.barrel.muzzle.x -= 1;
+                // if(APP.gun.angle > Math.PI) {
+                //     APP.gun.angle = APP.gun.angle - 0.1;
+                // }
+                APP.gunTurnLeft();
+            } else if (event.keyCode === 39) { //right
+                //  APP.gun.barrel.muzzle.x += 1;
+                // if(APP.gun.angle < Math.PI*2) {
+                //     APP.gun.angle = APP.gun.angle + 0.1;
+                // }
+                APP.gunTurnRight();
+            }
+        },
+        gunTurnLeft: function gunTurnLeft() {
+            if(APP.gun.angle > Math.PI) {
+                APP.gun.angle = APP.gun.angle - 0.1;
+            }
+        },
+        gunFire: function gunFire() {
+
+            // todo
+
+            const x = APP.gun.barrel.muzzle.x;
+            const y = APP.gun.barrel.muzzle.y;
+            APP.drawExplosionAt(x, y, 10);
+        },
+        gunTurnRight: function gunTurnRight() {
+            if(APP.gun.angle < Math.PI*2) {
+                APP.gun.angle = APP.gun.angle + 0.1;
+            }
+        },
+        clearScreen: function clearScreen () {
+            APP.context.clearRect(0, 0, APP.screenSize.x, APP.screenSize.y);
+            APP.context.lineWidth = 3;
+            APP.context.strokeStyle = '#999999';
+            APP.context.strokeRect(0, 0, APP.screenSize.x, APP.screenSize.y);
+        },
+        drawExplosionAt: function drawExplosionAt(x, y, size) {
+            if (!size) {
+                size = 10;
+            }
+            APP.context.beginPath();
+            APP.context.arc(x, y, size, 0, 2 * Math.PI, false);
+            APP.context.fillStyle = 'red';
+            APP.context.fill();
+            APP.context.lineWidth = 1;
+            APP.context.strokeStyle = '#ff3300';
+            APP.context.stroke();
+        },
+        findPointInDirection: function findPointInDirection(startX, startY, angle, range) {
+            const result = {
+                x: 0,
+                y: 0,
+            };
+            result.x = startX + range * Math.cos(angle);
+            result.y = startY + range * Math.sin(angle);
+
+            return result;
+        },
+        initGun: function initGun() {
+            const length = 15;
+            APP.gun = {
+                body: {
+                    x: APP.screenSize.x / 2,
+                    y: APP.screenSize.y,
+                    size: 10
+                },
+                barrel: {
+                    muzzle: {
+                        x: APP.screenSize.x / 2,
+                        y: APP.screenSize.y-length
+                    },
+                    breech: {
+                        x: APP.screenSize.x / 2,
+                        y: APP.screenSize.y
+                    }
+                },
+                length: length,
+                angle: Math.PI*1.5 // Angle Math.PI - right, Math.PI*0.5 - down, Math.PI*1 - left, Math.PI*1.5 - top
+            };
+        },
+        drawGun: function drawGun() {
+            const ctx = APP.context;
+            const gun = APP.gun;
+
+            ctx.beginPath();
+            ctx.arc(gun.body.x, gun.body.y, gun.body.size, Math.PI, Math.PI*2);
+            ctx.stroke();
+
+            const muzzlePoint = APP.findPointInDirection(
+                gun.barrel.breech.x,
+                gun.barrel.breech.y,
+                APP.gun.angle,
+                APP.gun.length
+            );
+            gun.barrel.muzzle.x = muzzlePoint.x;
+            gun.barrel.muzzle.y = muzzlePoint.y;
+
+            ctx.beginPath(); // Start a new path
+            ctx.moveTo(gun.barrel.breech.x, gun.barrel.breech.y);
+            ctx.lineTo(gun.barrel.muzzle.x, gun.barrel.muzzle.y);
+            ctx.lineWidth = 5;
+            ctx.stroke();
+        },
+    };
+</script>
+<div class="container text-center justify-content-center">
+    <header>
+        <div><label for="score">Score</label><input id="score" type="text" value="0" disabled="disabled"/></div>
+        <div><label for="lives">Lives</label><input id="lives" type="text" value="3" disabled="disabled"/></div>
+    </header>
+    <div id="main" class="container">
+        <canvas id="myCanvas" width="640" height="480"></canvas>
+    </div>
+    <div class="container">
+        <button type="button" class="btn btn-info" title="left">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-caret-left-fill" viewBox="0 0 16 16">
+                <path d="m3.86 8.753 5.482 4.796c.646.566 1.658.106 1.658-.753V3.204a1 1 0 0 0-1.659-.753l-5.48 4.796a1 1 0 0 0 0 1.506z"/>
+            </svg>
+        </button>
+        <button type="button" class="btn btn-danger" title="fire">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-rocket-fill" viewBox="0 0 16 16">
+                <path d="M10.175 1.991c.81 1.312 1.583 3.43 1.778 6.819l1.5 1.83A2.5 2.5 0 0 1 14 12.202V15.5a.5.5 0 0 1-.9.3l-1.125-1.5c-.166-.222-.42-.4-.752-.57-.214-.108-.414-.192-.627-.282l-.196-.083C9.7 13.793 8.85 14 8 14c-.85 0-1.7-.207-2.4-.635-.068.03-.133.057-.198.084-.211.089-.411.173-.625.281-.332.17-.586.348-.752.57L2.9 15.8a.5.5 0 0 1-.9-.3v-3.298a2.5 2.5 0 0 1 .548-1.562l.004-.005L4.049 8.81c.197-3.323.969-5.434 1.774-6.756.466-.767.94-1.262 1.31-1.57a3.67 3.67 0 0 1 .601-.41A.549.549 0 0 1 8 0c.101 0 .17.027.25.064.037.017.086.041.145.075.118.066.277.167.463.315.373.297.85.779 1.317 1.537ZM9.5 6c0-1.105-.672-2-1.5-2s-1.5.895-1.5 2S7.172 8 8 8s1.5-.895 1.5-2Z"/>
+                <path d="M8 14.5c.5 0 .999-.046 1.479-.139L8.4 15.8a.5.5 0 0 1-.8 0l-1.079-1.439c.48.093.98.139 1.479.139Z"/>
+            </svg>
+        </button>
+        <button type="button" class="btn btn-info" title="right">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-caret-right-fill" viewBox="0 0 16 16">
+                <path d="m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z"/>
+            </svg>
+        </button>
+    </div>
+    <script>
+        APP.newGame();
+    </script>
+</div>
+</body>
+</html>
