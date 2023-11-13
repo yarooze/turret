@@ -244,12 +244,10 @@
                         APP.drawExplosionAt(bullet.x, bullet.y, 10);
                         if (meteorite.size < 1) {
                             APP.meteorites.splice(meteoriteIndex, 1);
-                            APP.addGems(1000);
-                            APP.context.font = "48px serif";
-                            APP.context.fillText("1000", bullet.x, bullet.y);
+                            APP.addGems(100, bullet.x, bullet.y);
                         }
                         APP.bullets.splice(bulletIndex, 1);
-                        APP.addGems(100);
+                        APP.addGems(10, bullet.x, bullet.y);
                         return;
                     }
                 });
@@ -323,18 +321,18 @@
             APP.factories.forEach(function (factory, index) {
                 factory.draw();
                 if (APP.loopCounter%1000 === 0) {
-                    let gems = Number(document.getElementById('gems').value);
-                    gems = gems + Math.floor(factory.size);
-                    document.getElementById('gems').value = gems;
+                    APP.addGems(Math.floor(factory.size), factory.x, factory.y - 20);
                 }
                 if (APP.loopCounter%1000 === 0 && rndNum(0,10) < 2) {
                     let lives = Number(document.getElementById('lives').value);
                     lives = lives + 1;
                     document.getElementById('lives').value = lives;
+                    APP.context.font = "48px serif";
+                    APP.context.fillText('+1 ♥', factory.x, factory.y-20);
                 }
             });
 
-            if (Number(document.getElementById('gems').value) < 1 && APP.factories.length < 1) {
+            if (APP.factories.length < 1) {
                 APP.gameOver = true;
             }
             if (Number(document.getElementById('lives').value) < 1) {
@@ -342,8 +340,12 @@
             }
 
         },
-        addGems: function addGems(add) {
+        addGems: function addGems(add, x, y) {
             document.getElementById('gems').value = Number(document.getElementById('gems').value) + add;
+            if (x && y) {
+                APP.context.font = "48px serif";
+                APP.context.fillText(add, x, y);
+            }
         },
         newGame: function newGame() {
             APP.init();
@@ -591,8 +593,20 @@
                 <li>Your bullets can destroy the turret</li>
                 <li>Meteorites can destroy the turret</li>
                 <li>The turret has some lives (hearts)</li>
-                <li>If you have no factories and no resources (gems) - you lose</li>
+                <li>If you have no factories - you lose</li>
                 <li>If you have no lives (hearts) - you lose</li>
+                <li>Use keyboard
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left-square" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M15 2a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2zM0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm11.5 5.5a.5.5 0 0 1 0 1H5.707l2.147 2.146a.5.5 0 0 1-.708.708l-3-3a.5.5 0 0 1 0-.708l3-3a.5.5 0 1 1 .708.708L5.707 7.5H11.5z"/>
+                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-square" viewBox="0 0 16 16">
+                        <path d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h12zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H2z"/>
+                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-right-square" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M15 2a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2zM0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm4.5 5.5a.5.5 0 0 0 0 1h5.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 1 0-.708.708L10.293 7.5H4.5z"/>
+                    </svg>
+                    or the buttons on the screen to control the turret.
+                </li>
             </ol>
         </div>
     </div>
