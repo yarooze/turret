@@ -90,7 +90,7 @@
         this.move = function () {
             const self = this;
             if (self.impulse > 0) {
-                self.impulse = self.impulse - 0.01;
+                self.impulse = self.impulse - rndNum(0.005, 0.01); // 0.01;
             }
             self.gravity = self.gravity + 0.02;
 
@@ -426,7 +426,7 @@
                 APP.gun.barrel.muzzle.y,
                 APP.gun.angle, 5);
             APP.drawExplosionAt(muzzleFire.x, muzzleFire.y, 5);
-            APP.bullets.push(new Projectile(APP, muzzleFire.x, muzzleFire.y, APP.gun.angle));
+            APP.bullets.push(new Projectile(APP, muzzleFire.x, muzzleFire.y, APP.gun.angle, rndNum(4,6)));
         },
         gunTurnRight: function gunTurnRight() {
             if(APP.gun.angle < Math.PI*2) {
