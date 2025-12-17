@@ -1,723 +1,335 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8"/>
-    <title>Turret</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
-<!--    <link type="text/css" rel="stylesheet" media="all" href="css/turret.css"/>-->
-<!--    <script src="/js/turret.js"></script>-->
-</head>
-<body>
-<style>
-    * {
-        touch-action: manipulation;
-    }
-</style>
-<script>
-    /**
-     * Returns a random number between min (inclusive) and max (exclusive)
-     */ 
-        function rndNum(min, max) {
-            return Math.random() * (max - min) + min;
-        }
 
+        function rndNum(min, max) { return Math.random() * (max - min) + min; }
+
+        /* ===================== FACTORY ===================== */
         function Factory (app, x, size) {
             this.app = app;
             this.x = x;
-            this.size = size || 10;
+            this.size = size || 40; // базовая ширина/высота
             this.y = app.screenSize.y - this.size;
-            this.color = '#'+Math.floor(rndNum(10,99))+Math.floor(rndNum(10,99))+Math.floor(rndNum(10,99))+'';
+            this.color = '#' + Math.floor(rndNum(10,99)) + Math.floor(rndNum(10,99)) + Math.floor(rndNum(10,99));
+
+            // === Состояние жизни фабрики ===
+            this.maxHealth = Math.max(60, Math.floor(this.size * 4.5));
+            this.health = this.maxHealth;
+            this.state = 'normal'; // 'normal' -> 'damaged' -> 'fire' -> 'cooldown' -> 'destroyed'
+            this.smokeOn = true;   // трубы дымят в норме
+
+            // Сетка фасада (окна/плитки) 4 x 3
+            this.gridCols = 4; this.gridRows = 3;
+            this.tiles = [];       // 1 = целая плитка/окно; 0 = выбита
+            this.windowsLit = [];  // true = окно светится, false = погасло
+            for (let r = 0; r < this.gridRows; r++) { const rowT = [], rowW = []; for (let c = 0; c < this.gridCols; c++) { rowT.push(1); rowW.push(true); } this.tiles.push(rowT); this.windowsLit.push(rowW); }
+
+            // Эффекты
+            this.fires = [];  // {x,y,life}
+            this.smokes = []; // {x,y,life}
+            this.debris = []; // {x,y,vx,vy,rot,spin,size,life}
+
+            this.fireTicks = 0;      // длительность пожара
+            this.cooldownTicks = 0;  // пауза перед окончательным разрушением
+
+            this.thresholds = { toDamaged: 0.8, toFire: 0.45, toDestroy: 0.15 };
+
+            this.takeDamage = function(amount, hitX, hitY) {
+                if (this.state === 'destroyed') return;
+                const dmg = Math.max(1, Math.floor(amount));
+                this.health = Math.max(0, this.health - dmg);
+                const hpFrac = this.health / this.maxHealth;
+
+                // Выбиваем несколько плиток (обломки летят)
+                let tilesToBreak = Math.min(3, dmg);
+                while (tilesToBreak-- > 0) {
+                    const r = Math.floor(rndNum(0, this.gridRows));
+                    const c = Math.floor(rndNum(0, this.gridCols));
+                    if (this.tiles[r][c] === 1) {
+                        this.tiles[r][c] = 0; this.windowsLit[r][c] = false;
+                        const tx = this.x + (c + 0.5) * (this.size / this.gridCols);
+                        const ty = this.y + (r + 0.5) * (this.size / this.gridRows);
+                        this.debris.push({ x: tx, y: ty, vx: (Math.random() - 0.5) * 2, vy: -rndNum(1.2, 2.2), rot: rndNum(0, Math.PI*2), spin: (Math.random() - 0.5) * 0.12, size: rndNum(3, 6), life: 90 });
+                    }
+                }
+
+                // Локальный дым в месте попадания
+                if (Math.random() < 0.6) {
+                    const fx = hitX || (this.x + rndNum(0, this.size));
+                    const fy = hitY || (this.y + rndNum(0, this.size));
+                    this.smokes.push({ x: fx, y: fy, life: rndNum(50, 100) });
+                }
+
+                // Переходы состояния
+                if (this.state === 'normal' && hpFrac <= this.thresholds.toDamaged) {
+                    this.state = 'damaged'; this.smokeOn = false; // трубы перестают дымить
+                    for (let r = 0; r < this.gridRows; r++) { for (let c = 0; c < this.gridCols; c++) { if (Math.random() < 0.35) this.windowsLit[r][c] = false; } }
+                }
+                if ((this.state === 'damaged' || this.state === 'normal') && hpFrac <= this.thresholds.toFire) {
+                    this.state = 'fire'; this.smokeOn = false; this.fireTicks = Math.floor(rndNum(120, 200));
+                    for (let i = 0; i < 4; i++) { const fx = this.x + rndNum(this.size*0.2, this.size*0.8); const fy = this.y + rndNum(this.size*0.3, this.size*0.9); this.fires.push({ x: fx, y: fy, life: rndNum(60, 120) }); }
+                }
+                if (this.state === 'fire' && hpFrac <= this.thresholds.toDestroy && this.fireTicks <= 0) { this.state = 'cooldown'; this.cooldownTicks = Math.floor(rndNum(60, 120)); }
+                if (this.health <= 0 && (this.state === 'cooldown' || this.state === 'fire')) { this.cooldownTicks = Math.min(this.cooldownTicks, 30); }
+            };
+
+            this.updateDebris = function() {
+                const gravity = 0.05;
+                for (let i = this.debris.length - 1; i >= 0; i--) { const d = this.debris[i]; d.life--; d.vy += gravity; d.x += d.vx; d.y += d.vy; d.rot += d.spin; if (d.y >= this.app.screenSize.y - 1) { d.y = this.app.screenSize.y - 1; d.vy *= -0.2; d.vx *= 0.7; } if (d.life <= 0) this.debris.splice(i, 1); }
+            };
+
+            this.updateStage = function() {
+                if (this.state === 'fire') {
+                    this.fireTicks--;
+                    if (this.app.loopCounter % 3 === 0) { for (const f of this.fires) { this.smokes.push({ x: f.x + rndNum(-2,2), y: f.y + rndNum(-2,2), life: rndNum(40,80) }); } }
+                    for (let i = this.fires.length - 1; i >= 0; i--) { const f = this.fires[i]; f.life--; if (f.life <= 0) this.fires.splice(i, 1); }
+                    if (this.fireTicks <= 0 && this.fires.length === 0) { this.state = 'cooldown'; this.cooldownTicks = Math.floor(rndNum(60, 120)); }
+                } else if (this.state === 'cooldown') {
+                    this.cooldownTicks--; if (this.cooldownTicks <= 0) { this.state = 'destroyed'; this.smokeOn = false; this.app.spawnExplosion(this.x + this.size/2, this.y + this.size/2, Math.max(22, this.size * 0.8)); for (let i = 0; i < 14; i++) { this.debris.push({ x: this.x + rndNum(0, this.size), y: this.y + rndNum(0, this.size), vx: (Math.random() - 0.5) * 3, vy: -rndNum(1, 3), rot: rndNum(0, Math.PI*2), spin: (Math.random() - 0.5) * 0.15, size: rndNum(4, 8), life: 100 }); } }
+                }
+            };
+
+            this.drawDebris = function() { const ctx = this.app.context; ctx.save(); for (const d of this.debris) { ctx.translate(d.x, d.y); ctx.rotate(d.rot); ctx.fillStyle = '#6b5b4a'; ctx.strokeStyle = '#3b2e21'; ctx.lineWidth = 1; ctx.beginPath(); ctx.rect(-d.size/2, -d.size/2, d.size, d.size); ctx.fill(); ctx.stroke(); ctx.setTransform(1,0,0,1,0,0); } ctx.restore(); };
 
             this.draw = function () {
-                const self = this;
-
-                if ((this.y + this.size) < app.screenSize.y) {
-                    this.y = app.screenSize.y - this.size;
+                const self = this; const ctx = self.app.context; if ((this.y + this.size) < self.app.screenSize.y) this.y = self.app.screenSize.y - this.size;
+                const x = this.x, y = this.y, w = this.size, h = this.size; const roofH = h * 0.28, bodyH = h - roofH;
+                this.updateStage(); this.updateDebris();
+                // Корпус
+                ctx.save(); ctx.lineWidth = 2; ctx.strokeStyle = '#555'; ctx.fillStyle = this.color; ctx.beginPath(); ctx.rect(x, y + roofH, w, bodyH); ctx.fill(); ctx.stroke();
+                // Крыша
+                ctx.beginPath(); ctx.moveTo(x, y + roofH); ctx.lineTo(x + w * 0.5, y); ctx.lineTo(x + w, y + roofH); ctx.closePath(); ctx.fillStyle = '#888'; ctx.fill(); ctx.stroke();
+                // Трубы
+                const chW = w * 0.10; const ch1x = x + w * 0.18, ch1h = roofH * 0.7; const ch2x = x + w * 0.62, ch2h = roofH * 0.95; ctx.fillStyle = '#777'; ctx.beginPath(); ctx.rect(ch1x, y + roofH - ch1h, chW, ch1h); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.rect(ch2x, y + roofH - ch2h, chW, ch2h); ctx.fill(); ctx.stroke();
+                // Дым из труб
+                if (this.smokeOn && this.state === 'normal') {
+                    const t = (self.app.loopCounter || 0);
+                    const puff = (chx, chyBase, phase) => { ctx.globalAlpha = 0.6; ctx.fillStyle = 'rgba(160,160,160,0.6)'; for (let i = 0; i < 3; i++) { const r = (roofH * 0.18) * (1 - i * 0.22); const up = (t * 0.6 + i * 14 + phase) % (roofH * 3); const sway = Math.sin((t + i * 10 + phase) / 18) * r; const cx = chx + chW * 0.5 + sway; const cy = chyBase - up - i * (roofH * 0.22); ctx.beginPath(); ctx.arc(cx, cy, Math.max(1, r), 0, Math.PI * 2); ctx.fill(); } ctx.globalAlpha = 1; };
+                    puff(ch1x, y + roofH - ch1h, 7); puff(ch2x, y + roofH - ch2h, 0);
                 }
-                self.app.context.beginPath();
-                self.app.context.lineWidth = "6";
-                self.app.context.strokeStyle = "#666666";
-                self.app.context.rect(self.x, self.y, self.size, self.size);
-                self.app.context.stroke();
-                self.app.context.rect(self.x, self.y, self.size, self.size);
-                self.app.context.fillStyle = self.color;
-                self.app.context.fill();
+                // Окна
+                const padX = w * 0.08, padY = bodyH * 0.10; const gridW = w - padX * 2, gridH = bodyH - padY * 2; const cellW = gridW / this.gridCols, cellH = gridH / this.gridRows;
+                for (let r = 0; r < this.gridRows; r++) { for (let c = 0; c < this.gridCols; c++) { const wx = x + padX + c * cellW + cellW * 0.15; const wy = y + roofH + padY + r * cellH + cellH * 0.18; const ww = cellW * 0.7, wh = cellH * 0.55; if (this.tiles[r][c] === 1) { ctx.fillStyle = this.windowsLit[r][c] ? '#ffd66b' : '#2c2c2c'; ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.rect(wx, wy, ww, wh); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(wx + ww/2, wy); ctx.lineTo(wx + ww/2, wy + wh); ctx.moveTo(wx, wy + wh/2); ctx.lineTo(wx + ww, wy + wh/2); ctx.strokeStyle = '#444'; ctx.stroke(); } else { ctx.fillStyle = '#1f1f1f'; ctx.beginPath(); ctx.rect(wx, wy, ww, wh); ctx.fill(); } } }
+                // Дверь
+                const doorW = w * 0.18, doorH = bodyH * 0.38; const doorX = x + w / 2 - doorW / 2, doorY = y + roofH + bodyH - doorH; ctx.fillStyle = '#5a4b3a'; ctx.strokeStyle = '#3b2e21'; ctx.lineWidth = 2; ctx.beginPath(); ctx.rect(doorX, doorY, doorW, doorH); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.arc(doorX + doorW * 0.8, doorY + doorH * 0.5, doorW * 0.06, 0, Math.PI * 2); ctx.fillStyle = '#d7c48a'; ctx.fill();
+                // Пожар
+                if (this.state === 'fire') { const t = (self.app.loopCounter || 0); for (let i = this.fires.length - 1; i >= 0; i--) { const f = this.fires[i]; ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, f.life / 80)); const rr = Math.max(3, Math.sin(t * 0.22 + i) * 2 + 6); ctx.beginPath(); ctx.arc(f.x, f.y, rr, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,140,60,0.85)'; ctx.fill(); ctx.restore(); } }
+                // Случайный дым
+                for (let i = this.smokes.length - 1; i >= 0; i--) { const s = this.smokes[i]; s.life--; ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(0.6, s.life / 120)); const t = (self.app.loopCounter || 0); const sy = s.y - (120 - s.life) * 0.12; const sx = s.x + Math.sin(t * 0.05 + i) * 1.6; ctx.beginPath(); ctx.fillStyle = 'rgba(130,130,130,0.5)'; ctx.arc(sx, sy, 4 + Math.min(18, (120 - s.life) * 0.04), 0, Math.PI * 2); ctx.fill(); ctx.restore(); if (s.life <= 0) this.smokes.splice(i, 1); }
+                ctx.restore(); this.drawDebris();
             };
 
-            this.collision = function (x1, y1, x2, y2) {
-                const self = this;
-                if (
-                        (x1 < self.x + self.size) &&
-                        (y1 < self.y + self.size) &&
-                        (x1 > self.x - self.size) &&
-                        (y1 > self.y - self.size)
-                ) {
-                    return true;
-                }
-                if (
-                        (x2 < self.x - self.size) &&
-                        (y2 < self.y - self.size) &&
-                        (x2 > self.x + self.size) &&
-                        (y2 > self.y + self.size)
-                ) {
-                    return true;
-                }
-
-                return false;
-            };
+            this.collision = function (x1, y1, x2, y2) { const self = this; if ((x1 < self.x + self.size) && (y1 < self.y + self.size) && (x1 > self.x - self.size) && (y1 > self.y - self.size)) return true; if ((x2 < self.x - self.size) && (y2 < self.y - self.size) && (x2 > self.x + self.size) && (y2 > self.y + self.size)) return true; return false; };
         }
 
+        /* ===================== PROJECTILE ===================== */
         function Projectile(app, x, y, direction, impulse, size, color) {
-            this.app = app;
-            this.x = x;
-            this.y = y;
-            this.direction = direction;
-            this.impulse = impulse || 5;
-            this.size = size || 2;
-            this.color = color || '#eed202';
-            this.gravity = 0;
-
-            this.draw = function () {
-                const self = this;
-                self.app.context.beginPath();
-                self.app.context.arc(self.x, self.y, self.size, 0, 2 * Math.PI, false);
-                self.app.context.fillStyle = self.color;
-                self.app.context.fill();
-                self.app.context.lineWidth = 1;
-                self.app.context.strokeStyle = self.color;
-                self.app.context.stroke();
-            };
-
-            this.move = function () {
-                const self = this;
-                if (self.impulse > 0) {
-                    self.impulse = self.impulse - rndNum(0.005, 0.01); // 0.01;
-                }
-                self.gravity = self.gravity + 0.02;
-
-                const directionModifyer = (Math.random() - 0.5) / 50;
-                self.direction = self.direction + directionModifyer;
-
-                const newPos = self.app.findPointInDirection(self.x, self.y, self.direction, self.impulse);
-                newPos.y = newPos.y + self.gravity;
-                self.x = newPos.x;
-                self.y = newPos.y;
-
-                if (self.y < APP.screenSize.y && self.y + self.gravity > APP.screenSize.y) {
-                    self.y = APP.screenSize.y - 2;
-                }
-            };
-
-            this.collision = function (x1, y1, x2, y2) {
-                const self = this;
-                // fix for too fast flying projectiles
-                const selfY = (self.y < APP.screenSize.y) ? self.y : APP.screenSize.y - 1;
-                if (
-                        (x1 < self.x + self.size) &&
-                        (y1 < selfY + self.size) &&
-                        (x1 > self.x - self.size) &&
-                        (y1 > selfY - self.size)
-                ) {
-                    return true;
-                }
-                if (
-                        (x2 < self.x - self.size) &&
-                        (y2 < selfY - self.size) &&
-                        (x2 > self.x + self.size) &&
-                        (y2 > selfY + self.size)
-                ) {
-                    return true;
-                }
-
-                return false;
-            };
+            this.app = app; this.x = x; this.y = y; this.direction = direction; this.impulse = impulse || 5; this.size = size || 2; this.color = color || '#eed202'; this.gravity = 0; this.type = 'generic'; this.prevX = x; this.prevY = y;
+            this.draw = function () { const self = this; const ctx = self.app.context; if (self.type === 'shot') { ctx.save(); ctx.globalAlpha = 0.95; ctx.strokeStyle = self.color; ctx.lineWidth = Math.max(1, self.size * 0.4); ctx.beginPath(); ctx.moveTo(self.prevX, self.prevY); ctx.lineTo(self.x, self.y); ctx.stroke(); ctx.beginPath(); ctx.arc(self.x, self.y, Math.max(1, self.size * 0.35), 0, Math.PI * 2); ctx.fillStyle = '#fff0a0'; ctx.fill(); ctx.restore(); } else { ctx.beginPath(); ctx.arc(self.x, self.y, self.size, 0, 2 * Math.PI, false); ctx.fillStyle = self.color; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = self.color; ctx.stroke(); } };
+            this.move = function () { const self = this; self.prevX = self.x; self.prevY = self.y; if (self.impulse > 0) self.impulse = self.impulse - rndNum(0.005, 0.01); self.gravity = self.gravity + 0.02; const dm = (Math.random() - 0.5) / 50; self.direction = self.direction + dm; const newPos = self.app.findPointInDirection(self.x, self.y, self.direction, self.impulse); newPos.y = newPos.y + self.gravity; self.x = newPos.x; self.y = newPos.y; if (self.type === 'shot' && (self.app.loopCounter % 2 === 0)) { self.app.explosions.push({ type: 'smoke', x: self.x, y: self.y, vx: (Math.random()-0.5)*0.1, vy: -0.2, life: 18, maxLife: 28, size: 1.5 + Math.random()*1.5, baseSize: 1.5, color: 'rgba(200,200,200,0.4)', grow: 0.03, drag: 0.995 }); } if (self.y < APP.screenSize.y && self.y + self.gravity > APP.screenSize.y) self.y = APP.screenSize.y - 2; };
+            this.collision = function (x1, y1, x2, y2) { const self = this; const selfY = (self.y < APP.screenSize.y) ? self.y : APP.screenSize.y - 1; if ((x1 < self.x + self.size) && (y1 < selfY + self.size) && (x1 > self.x - self.size) && (y1 > selfY - self.size)) return true; if ((x2 < self.x - self.size) && (y2 < selfY - self.size) && (x2 > self.x + self.size) && (y2 > selfY + self.size)) return true; return false; };
         }
 
+        /* ===================== APP ===================== */
         const APP = {
-            loopCounter: 0,
-            startTime: null,
-            canvas: null,
-            context: null,
-            gameOver: false,
-            screenSize: {x: 640, y: 480},
-            gun: {},
-            bulletsmax: 1000,
-            bullets: [],
-            meteoritesmax: 100,
-            meteoritesinterval: 5000,
-            meteorites: [],
-            factoriesMax: 12,
-            factories: [],
+            loopCounter: 0, startTime: null, canvas: null, context: null, gameOver: false,
+            screenSize: {x: 640, y: 480}, gun: {}, bulletsmax: 1000, bullets: [], meteoritesmax: 100, meteoritesinterval: 5000, meteorites: [], factoriesMax: 12, factories: [],
+            inputMode: 'mouse', angleEpsilon: 0.06,
+            mouse: { onCanvas: false, leftPressed: false, x: 0, y: 0 }, touch: { active: false, startedFiring: false, x: 0, y: 0 },
 
-            inputMode: 'mouse', // 'mouse' | 'touch' | 'keyboard' | 'buttons'
-            angleEpsilon: 0.06,
+            // === Fullscreen control ===
+            fullscreen: { enabled: false, btn: null, originalCss: { width: null, height: null } },
 
-            mouse: {
-                onCanvas: false,
-                leftPressed: false,
-                x: 0,
-                y: 0,
+            // === Мир/небо/погода ===
+            world: { auto: true, season: 'winter', timeOfDay: 'day', weather: 'clear', intensity: 0.6 },
+            stars: [], weather: { particles: [], clouds: [] },
+
+            // === Notifications ===
+            notifications: [],
+
+            /* ---------- WORLD ---------- */
+            updateWorld: function() {
+                if (!APP.world.auto) return; const now = new Date(); const m = now.getMonth(); const h = now.getHours();
+                APP.world.season = (m===11||m<=1) ? 'winter' : (m<=4 ? 'spring' : (m<=7 ? 'summer' : 'autumn'));
+                if      (h < 5)  APP.world.timeOfDay = 'night';
+                else if (h < 8)  APP.world.timeOfDay = 'dawn';
+                else if (h < 18) APP.world.timeOfDay = 'day';
+                else              APP.world.timeOfDay = (h < 21) ? 'dusk' : 'night';
+                if (APP.world.season === 'winter') APP.world.weather = (Math.random() < 0.5) ? 'snow' : (Math.random()<0.7?'cloudy':'clear');
+                else { const pool = ['clear','cloudy','rain','fog']; APP.world.weather = pool[Math.floor(Math.random()*pool.length)]; }
+                APP.world.intensity = 0.5 + Math.random()*0.4;
             },
-            touch: {
-                active: false,
-                startedFiring: false,
-                x: 0,
-                y: 0,
+            generateStars: function(n) { APP.stars = []; for (let i=0;i<n;i++) { APP.stars.push({ x: Math.random()*APP.screenSize.x, y: Math.random()*APP.screenSize.y*0.7, r: Math.random()*1.5+0.5, a: Math.random()*Math.PI*2 }); } },
+            getSkyPalette: function(season, timeOfDay) {
+                const palettes = {
+                    winter: { night: ['#0c1220','#1a2740'], dawn: ['#1b2c4a','#2e4a6b'], day: ['#8ea5c9','#b9c6dc'], dusk: ['#2a3a5a','#1b2c4a'] },
+                    spring: { night: ['#101820','#1f2d3a'], dawn: ['#2b4a6a','#84a3b8'], day: ['#a7c7e7','#cfe4f3'], dusk: ['#4a6a8a','#273b50'] },
+                    summer: { night: ['#0d1623','#1b2a3a'], dawn: ['#3a6a8a','#9fbfd6'], day: ['#9ec3e8','#d4e8f7'], dusk: ['#3e5c7a','#24384d'] },
+                    autumn: { night: ['#0f1822','#1e2b39'], dawn: ['#2f4b64','#8fa8bb'], day: ['#9bb7d5','#cddcee'], dusk: ['#3b5470','#25374b'] }
+                }; return palettes[season][timeOfDay];
             },
-
-            canvasPointFromMouseEvent: function (e) {
-                const rect = APP.canvas.getBoundingClientRect();
-                return {
-                    x: (e.clientX - rect.left) * (APP.canvas.width / rect.width),
-                    y: (e.clientY - rect.top)  * (APP.canvas.height / rect.height),
-                };
+            drawSky: function() {
+                const ctx = APP.context; const p = APP.getSkyPalette(APP.world.season, APP.world.timeOfDay); const grad = ctx.createLinearGradient(0,0,0,APP.screenSize.y); grad.addColorStop(0, p[0]); grad.addColorStop(1, p[1]); ctx.fillStyle = grad; ctx.fillRect(0,0,APP.screenSize.x,APP.screenSize.y);
+                ctx.save(); let discR = 18; let discColor = (APP.world.timeOfDay==='day'||APP.world.timeOfDay==='dawn'||APP.world.timeOfDay==='dusk') ? 'rgba(255,255,220,0.12)' : 'rgba(220,230,255,0.08)'; ctx.beginPath(); ctx.arc(APP.screenSize.x*0.85, APP.screenSize.y*0.2, discR, 0, Math.PI*2); ctx.fillStyle = discColor; ctx.fill(); ctx.restore();
+                if (APP.world.timeOfDay !== 'day') { ctx.save(); for (const s of APP.stars) { ctx.globalAlpha = (APP.world.timeOfDay==='night') ? 0.7 : 0.25; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fillStyle = '#dfe7ff'; ctx.fill(); } ctx.restore(); }
             },
-            canvasPointFromTouch: function (t) {
-                const rect = APP.canvas.getBoundingClientRect();
-                return {
-                    x: (t.clientX - rect.left) * (APP.canvas.width / rect.width),
-                    y: (t.clientY - rect.top)  * (APP.canvas.height / rect.height),
-                };
-            },
+            initWeather: function() { APP.weather.particles = []; APP.weather.clouds = []; for (let i=0;i<4;i++) { APP.weather.clouds.push({ x: Math.random()*APP.screenSize.x, y: rndNum(30, 140), w: rndNum(80, 140), h: rndNum(20, 40), vx: rndNum(0.1, 0.25) }); } },
+            updateWeather: function() { const w = APP.world.weather; APP.weather.clouds.forEach(cl => { cl.x += cl.vx; if (cl.x - cl.w > APP.screenSize.x) { cl.x = -cl.w; cl.y = rndNum(30,140); } }); if (w === 'snow') { const target = Math.floor(60 * APP.world.intensity); while (APP.weather.particles.length < target) { APP.weather.particles.push({ x: Math.random()*APP.screenSize.x, y: rndNum(-50,0), r: rndNum(1,2.2), vy: rndNum(0.4,1.2), vx: rndNum(-0.3,0.3), a: Math.random()*Math.PI*2 }); } for (let i=APP.weather.particles.length-1;i>=0;i--) { const p = APP.weather.particles[i]; p.a += 0.02; p.x += Math.sin(p.a)*0.2 + p.vx; p.y += p.vy; if (p.y > APP.screenSize.y) APP.weather.particles.splice(i,1); } } else if (w === 'rain') { const target = Math.floor(80 * APP.world.intensity); while (APP.weather.particles.length < target) { APP.weather.particles.push({ x: Math.random()*APP.screenSize.x, y: rndNum(-80,0), l: rndNum(8,14), vy: rndNum(3.5,5.5) }); } for (let i=APP.weather.particles.length-1;i>=0;i--) { const p = APP.weather.particles[i]; p.y += p.vy; if (p.y > APP.screenSize.y) APP.weather.particles.splice(i,1); } } else { if (APP.weather.particles.length > 0 && APP.loopCounter % 3 === 0) APP.weather.particles.pop(); } },
+            drawWeather: function() { const ctx = APP.context; const w = APP.world.weather; ctx.save(); ctx.globalAlpha = 0.35; ctx.fillStyle = '#cfd6df'; for (const cl of APP.weather.clouds) { ctx.beginPath(); ctx.ellipse(cl.x, cl.y, cl.w, cl.h, 0, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.ellipse(cl.x+cl.w*0.4, cl.y-10, cl.w*0.7, cl.h*0.9, 0, 0, Math.PI*2); ctx.fill(); } ctx.restore(); if (w === 'snow') { ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.9)'; for (const p of APP.weather.particles) { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill(); } ctx.restore(); } else if (w === 'rain') { ctx.save(); ctx.strokeStyle = 'rgba(180,190,200,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); for (const p of APP.weather.particles) { ctx.moveTo(p.x, p.y); ctx.lineTo(p.x-2, p.y+p.l); } ctx.stroke(); ctx.restore(); } else if (w === 'fog') { ctx.save(); ctx.globalAlpha = 0.15 * APP.world.intensity; ctx.fillStyle = '#bfc6cc'; ctx.fillRect(0, APP.screenSize.y*0.55, APP.screenSize.x, APP.screenSize.y*0.45); ctx.restore(); } },
 
-            aimGunTowards: function (x, y) {
-                const breech = APP.gun.barrel.breech;
-                let target = Math.atan2(y - breech.y, x - breech.x);
+            /* ---------- Notifications ---------- */
+            showMessage: function(text, x, y, durationMs) { APP.notifications.push({ text: String(text), x: x||APP.screenSize.x/2, y: y||APP.screenSize.y/2, created: Date.now(), duration: durationMs||2000 }); },
+            drawNotifications: function() { const ctx = APP.context; const now = Date.now(); for (let i=APP.notifications.length-1;i>=0;i--) { const n = APP.notifications[i]; const t = (now - n.created); if (t >= n.duration) { APP.notifications.splice(i,1); continue; } const alpha = Math.min(1, t/250) * Math.min(1, (n.duration - t)/300 + 0.2); ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = 'rgba(0,0,0,0.35)'; const pad = 8; ctx.font = 'bold 18px sans-serif'; const w = ctx.measureText(n.text).width + pad*2; const h = 26; ctx.fillRect(n.x - w/2, n.y - h/2, w, h); ctx.fillStyle = '#ffe58a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(n.text, n.x, n.y); ctx.restore(); } },
 
-                if (target < 0) target += Math.PI * 2;
+            /* ---------- Mouse/Touch helpers ---------- */
+            canvasPointFromMouseEvent: function (e) { const rect = APP.canvas.getBoundingClientRect(); return { x: (e.clientX - rect.left) * (APP.canvas.width / rect.width), y: (e.clientY - rect.top)  * (APP.canvas.height / rect.height) }; },
+            canvasPointFromTouch: function (t) { const rect = APP.canvas.getBoundingClientRect(); return { x: (t.clientX - rect.left) * (APP.canvas.width / rect.width), y: (t.clientY - rect.top)  * (APP.canvas.height / rect.height) }; },
 
+            /* ---------- Aiming & Controls ---------- */
+            aimGunTowards: function (x, y) { const breech = APP.gun.barrel.breech; let target = Math.atan2(y - breech.y, x - breech.x); if (target < 0) target += Math.PI * 2; if (target < Math.PI) target = Math.PI; if (target > Math.PI * 2) target = Math.PI * 2; const cur = APP.gun.angle; const delta = target - cur; const step = Math.sign(delta) * Math.min(Math.abs(delta), APP.gun.speed); APP.gun.angle = Math.min(Math.max(cur + step, Math.PI), Math.PI * 2); return { target, reached: Math.abs(target - APP.gun.angle) <= APP.angleEpsilon }; },
 
-                if (target < Math.PI) target = Math.PI;
-                if (target > Math.PI * 2) target = Math.PI * 2;
+            initControls: function () { const cvs = APP.canvas; cvs.addEventListener('mouseenter', () => { APP.mouse.onCanvas = true; }); cvs.addEventListener('mouseleave', () => { APP.mouse.onCanvas = false; APP.mouse.leftPressed = false; APP.gun.fire = false; }); cvs.addEventListener('mousemove', (e) => { const p = APP.canvasPointFromMouseEvent(e); APP.mouse.x = p.x; APP.mouse.y = p.y; }); cvs.addEventListener('mousedown', (e) => { if (e.button === 0) { const p = APP.canvasPointFromMouseEvent(e); APP.mouse.x = p.x; APP.mouse.y = p.y; APP.mouse.leftPressed = true; if (APP.mouse.onCanvas) APP.gun.fire = true; } }); window.addEventListener('mouseup', (e) => { if (e.button === 0) { APP.mouse.leftPressed = false; APP.gun.fire = false; } }); const touchStart = (e) => { e.preventDefault(); const t = e.changedTouches[0]; const p = APP.canvasPointFromTouch(t); APP.touch.active = true; APP.touch.startedFiring = false; APP.touch.x = p.x; APP.touch.y = p.y; }; const touchMove  = (e) => { e.preventDefault(); const t = e.changedTouches[0]; const p = APP.canvasPointFromTouch(t); APP.touch.x = p.x; APP.touch.y = p.y; }; const touchEnd   = (e) => { e.preventDefault(); APP.touch.active = false; APP.touch.startedFiring = false; APP.gun.fire = false; }; cvs.addEventListener('touchstart', touchStart, { passive: false }); cvs.addEventListener('touchmove',  touchMove,  { passive: false }); cvs.addEventListener('touchend',   touchEnd,   { passive: false }); cvs.addEventListener('touchcancel',touchEnd,   { passive: false }); },
 
-                const cur = APP.gun.angle;
-                const delta = target - cur;
+            /* ---------- Explosions ---------- */
+            explosions: [],
+            spawnExplosion: function (x, y, size) { size = size || 10; const count = Math.floor(16 + size * 1.4); const baseSpeed = 2 + size * 0.15; const lifeMin = 18, lifeMax = 38; const smokeCount = Math.floor(size * 0.6); const shockRingLife = 22; for (let i = 0; i < count; i++) { const a = Math.random() * Math.PI * 2; const v = baseSpeed * (0.6 + Math.random() * 0.8); APP.explosions.push({ type: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - (Math.random() * 0.6), life: lifeMin + Math.floor(Math.random() * (lifeMax - lifeMin)), maxLife: lifeMax, size: 1.5 + Math.random() * (size * 0.12), color: (Math.random() < 0.5) ? '#ffd966' : '#ff8b3d', gravity: 0.06 + Math.random() * 0.04, drag: 0.985, flicker: 0.4 + Math.random() * 0.6 }); } for (let i = 0; i < smokeCount; i++) { const a = Math.random() * Math.PI * 2; const v = (baseSpeed * 0.25) * Math.random(); APP.explosions.push({ type: 'smoke', x, y, vx: Math.cos(a) * v * 0.6, vy: Math.sin(a) * v * 0.3 - (0.3 + Math.random() * 0.4), life: 40 + Math.floor(Math.random() * 40), maxLife: 80, size: 6 + Math.random() * (size * 0.25), baseSize: 6 + Math.random() * (size * 0.25), color: 'rgba(140,140,140,0.5)', grow: 0.08, drag: 0.992 }); } APP.explosions.push({ type: 'ring', x, y, r: Math.max(6, size * 0.6), growth: 1.8 + size * 0.05, life: shockRingLife, maxLife: shockRingLife, stroke: '#ffaa55', lineWidth: Math.max(1, size * 0.07) }); APP.explosions.push({ type: 'flash', x, y, life: 8, maxLife: 8, size: Math.max(12, size * 0.8), innerColor: 'rgba(255,255,200,0.85)', outerColor: 'rgba(255,160,60,0.55)' }); },
+            updateExplosions: function () { const ctx = APP.context; for (let i = APP.explosions.length - 1; i >= 0; i--) { const p = APP.explosions[i]; p.life--; if (p.type === 'spark') { p.vx *= p.drag; p.vy = p.vy * p.drag + p.gravity; p.x += p.vx; p.y += p.vy; const alpha = Math.max(0, p.life / p.maxLife); const flicker = 0.8 + Math.sin((APP.loopCounter + i) * 0.3) * 0.2 * p.flicker; ctx.save(); ctx.globalAlpha = alpha * flicker; ctx.beginPath(); ctx.moveTo(p.x - p.vx * 0.8, p.y - p.vy * 0.8); ctx.lineTo(p.x, p.y); ctx.strokeStyle = p.color; ctx.lineWidth = Math.max(1, p.size * 0.18); ctx.stroke(); ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.5, p.size * 0.3), 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill(); ctx.restore(); if (p.y >= APP.screenSize.y - 1) { p.vy *= -0.25; p.vx *= 0.6; p.life -= 4; p.y = APP.screenSize.y - 1; } } else if (p.type === 'smoke') { p.vx *= p.drag; p.vy *= p.drag; p.x += p.vx; p.y += p.vy; p.size += p.grow; const alpha = Math.max(0, p.life / p.maxLife) * 0.6; ctx.save(); ctx.globalAlpha = alpha; ctx.beginPath(); ctx.fillStyle = p.color; ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); ctx.restore(); } else if (p.type === 'ring') { p.r += p.growth; const alpha = Math.max(0, p.life / p.maxLife); ctx.save(); ctx.globalAlpha = alpha; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.strokeStyle = p.stroke; ctx.lineWidth = p.lineWidth; ctx.stroke(); ctx.restore(); } else if (p.type === 'flash') { const alpha = Math.max(0, p.life / p.maxLife); const r1 = p.size * (0.6 + Math.random() * 0.2); const r2 = p.size * (1.0 + Math.random() * 0.3); ctx.save(); const grad = ctx.createRadialGradient(p.x, p.y, r1 * 0.1, p.x, p.y, r2); grad.addColorStop(0, p.innerColor); grad.addColorStop(1, p.outerColor); ctx.globalAlpha = alpha; ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(p.x, p.y, r2, 0, Math.PI * 2); ctx.fill(); ctx.restore(); } if (p.life <= 0) APP.explosions.splice(i, 1); } },
 
-                const step = Math.sign(delta) * Math.min(Math.abs(delta), APP.gun.speed);
-                APP.gun.angle = Math.min(Math.max(cur + step, Math.PI), Math.PI * 2);
-
-                return {
-                    target,
-                    reached: Math.abs(target - APP.gun.angle) <= APP.angleEpsilon,
-                };
-            },
-
-            initControls: function () {
-                const cvs = APP.canvas;
-
-                // === МЫШЬ ===
-                cvs.addEventListener('mouseenter', () => {
-                    APP.mouse.onCanvas = true;
-                });
-                cvs.addEventListener('mouseleave', () => {
-                    APP.mouse.onCanvas = false;
-                    APP.mouse.leftPressed = false;
-                    APP.gun.fire = false;
-                });
-                cvs.addEventListener('mousemove', (e) => {
-                    const p = APP.canvasPointFromMouseEvent(e);
-                    APP.mouse.x = p.x; APP.mouse.y = p.y;
-                });
-                cvs.addEventListener('mousedown', (e) => {
-                    if (e.button === 0) {
-                        const p = APP.canvasPointFromMouseEvent(e);
-                        APP.mouse.x = p.x; APP.mouse.y = p.y;
-                        APP.mouse.leftPressed = true;
-                        if (APP.mouse.onCanvas) APP.gun.fire = true;
-                    }
-                });
-                window.addEventListener('mouseup', (e) => {
-                    if (e.button === 0) {
-                        APP.mouse.leftPressed = false;
-                        APP.gun.fire = false;
-                    }
-                });
-
-                const touchStart = (e) => {
-                    e.preventDefault();
-                    const t = e.changedTouches[0];
-                    const p = APP.canvasPointFromTouch(t);
-                    APP.touch.active = true;
-                    APP.touch.startedFiring = false;
-                    APP.touch.x = p.x; APP.touch.y = p.y;
-                };
-                const touchMove = (e) => {
-                    e.preventDefault();
-                    const t = e.changedTouches[0];
-                    const p = APP.canvasPointFromTouch(t);
-                    APP.touch.x = p.x; APP.touch.y = p.y;
-                };
-                const touchEnd = (e) => {
-                    e.preventDefault();
-                    APP.touch.active = false;
-                    APP.touch.startedFiring = false;
-                    APP.gun.fire = false;
-                };
-
-                cvs.addEventListener('touchstart', touchStart, { passive: false });
-                cvs.addEventListener('touchmove',  touchMove,  { passive: false });
-                cvs.addEventListener('touchend',   touchEnd,   { passive: false });
-                cvs.addEventListener('touchcancel',touchEnd,   { passive: false });
-            },
-
+            /* ---------- Core ---------- */
             init: function init() {
                 window.addEventListener("contextmenu", function(e) { e.preventDefault(); });
-                document.getElementById('score').value = 0;
-                document.getElementById('lives').value = 3;
-                document.getElementById('gems').value = 100;
-                document.getElementById('time').value = '';
-                document.getElementById('gamespeed').value = 100;
-
-                APP.gameOver = false;
-
-                APP.canvas  = document.getElementById('myCanvas');
-                APP.context = APP.canvas.getContext('2d');
-
-                APP.canvas.width  = APP.screenSize.x;
-                APP.canvas.height  = APP.screenSize.y;
-
+                document.getElementById('score').value = 0; document.getElementById('lives').value = 3; document.getElementById('gems').value = 100; document.getElementById('time').value = '';
+                document.getElementById('gamespeed').value = 100; APP.gameOver = false;
+                APP.canvas  = document.getElementById('myCanvas'); APP.context = APP.canvas.getContext('2d');
+                APP.canvas.width  = APP.screenSize.x; APP.canvas.height = APP.screenSize.y;
+                // фиксируем стартовый CSS‑размер, чтобы потом вернуть из fullscreen
+                APP.canvas.style.width  = APP.screenSize.x + 'px'; APP.canvas.style.height = APP.screenSize.y + 'px';
 
                 APP.inputMode = APP.isTouchDevice() ? 'touch' : 'mouse';
-
-                const touchcontrols = document.getElementById('touchcontrols');
-                if (APP.inputMode === 'buttons') {
-                    if (touchcontrols) touchcontrols.classList.remove('d-none');
-                    ['touchstart', 'mousedown'].forEach(function (eventName) {
-                        document.getElementById('buttonleft').addEventListener(eventName, function () {APP.gun.turn = 'left'});
-                        document.getElementById('buttonfire').addEventListener(eventName, function () {APP.gun.fire = true});
-                        document.getElementById('buttonright').addEventListener(eventName, function () {APP.gun.turn = 'right'});
-                    });
-                    ['touchcancel', 'touchend', 'mouseup'].forEach(function (eventName) {
-                        document.getElementById('buttonleft').addEventListener(eventName, function () {APP.gun.turn = ''});
-                        document.getElementById('buttonfire').addEventListener(eventName, function () {APP.gun.fire = false});
-                        document.getElementById('buttonright').addEventListener(eventName, function () {APP.gun.turn = ''});
-                    });
-                } else {
-                    if (touchcontrols) touchcontrols.classList.add('d-none');
-                }
-                
-                if (APP.inputMode === 'keyboard') {
-                    document.addEventListener("keypress", APP.controls);
-                    document.addEventListener("keydown", APP.controls);
-                    document.addEventListener("keyup", APP.controls);
-                }
-                
-                APP.initControls();
-
-                APP.initGun();
-                APP.initFactories();
-
+                const touchcontrols = document.getElementById('touchcontrols'); if (touchcontrols) touchcontrols.classList.add('d-none');
+                if (APP.inputMode === 'keyboard') { document.addEventListener("keypress", APP.controls); document.addEventListener("keydown", APP.controls); document.addEventListener("keyup", APP.controls); }
+                APP.initControls(); APP.initGun(); APP.initFactories();
+                APP.generateStars(120); APP.updateWorld(); APP.initWeather();
+                APP.createFullscreenButton(); APP.wireFullscreenChange();
                 APP.startTime = new Date();
             },
 
             mainLoop: function mainLoop() {
-                APP.loopCounter++;
-                const timeNow = new Date();
-                const timeLast = timeNow - APP.startTime;
-                document.getElementById('time').value = new Date(timeLast).toISOString().slice(11, 19);
-                if (Number(document.getElementById('gems').value) > Number(document.getElementById('score').value)) {
-                    document.getElementById('score').value = Number(document.getElementById('gems').value);
-                }
+                APP.loopCounter++; const timeNow = new Date(); const timeLast = timeNow - APP.startTime; document.getElementById('time').value = new Date(timeLast).toISOString().slice(11, 19);
+                if (Number(document.getElementById('gems').value) > Number(document.getElementById('score').value)) { document.getElementById('score').value = Number(document.getElementById('gems').value); }
+                if (APP.gameOver === true) { alert('GAME OVER'); APP.newGame(); return; }
+                const gamespeed = Number(document.getElementById('gamespeed').value); if (gamespeed < 100) { const delay = 100 - gamespeed; setTimeout(function (APP) { APP.loopId = requestAnimationFrame(APP.mainLoop); }, delay, APP); } else { APP.loopId = requestAnimationFrame(APP.mainLoop); }
 
-                if (APP.gameOver === true) {
-                    alert('GAME OVER');
-                    APP.newGame();
-                    return;
-                }
+                // SKY & WEATHER
+                APP.drawSky(); APP.updateWeather(); APP.drawWeather();
 
-                const gamespeed = Number(document.getElementById('gamespeed').value);
-                if (gamespeed < 100) {
-                    const delay = 100 - gamespeed;
-                    setTimeout(function (APP) {
-                        APP.loopId = requestAnimationFrame(APP.mainLoop);
-                    }, delay, APP);
-                } else {
-                    APP.loopId = requestAnimationFrame(APP.mainLoop);
-                }
+                // Controls
+                if (APP.inputMode === 'mouse') { if (APP.mouse.onCanvas) { const res = APP.aimGunTowards(APP.mouse.x, APP.mouse.y); APP.gun.fire = APP.mouse.leftPressed && APP.mouse.onCanvas; } else { APP.gun.fire = false; } } else if (APP.inputMode === 'touch') { if (APP.touch.active) { const res = APP.aimGunTowards(APP.touch.x, APP.touch.y); if (!APP.touch.startedFiring && res.reached) { APP.touch.startedFiring = true; } APP.gun.fire = APP.touch.active && APP.touch.startedFiring; } else { APP.gun.fire = false; APP.touch.startedFiring = false; } } else { if (APP.gun.turn === 'left')  APP.gunTurnLeft(); if (APP.gun.turn === 'right') APP.gunTurnRight(); }
 
-                APP.clearScreen();
+                APP.drawGun(); if (APP.gun.fire) { APP.gunFire(); }
 
-                if (APP.inputMode === 'mouse') {
-                    if (APP.mouse.onCanvas) {
-                        const res = APP.aimGunTowards(APP.mouse.x, APP.mouse.y);
-                        APP.gun.fire = APP.mouse.leftPressed && APP.mouse.onCanvas;
-                    } else {
-                        APP.gun.fire = false;
-                    }
-                } else if (APP.inputMode === 'touch') {
-                    if (APP.touch.active) {
-                        const res = APP.aimGunTowards(APP.touch.x, APP.touch.y);
-                        if (!APP.touch.startedFiring && res.reached) {
-                            APP.touch.startedFiring = true;
-                        }
-                        APP.gun.fire = APP.touch.active && APP.touch.startedFiring;
-                    } else {
-                        APP.gun.fire = false;
-                        APP.touch.startedFiring = false;
-                    }
-                } else {
-                    if (APP.gun.turn === 'left') {
-                        APP.gunTurnLeft();
-                    }
-                    if (APP.gun.turn === 'right') {
-                        APP.gunTurnRight();
-                    }
-                }
-
-                APP.drawGun();
-                if (APP.gun.fire) {
-                    APP.gunFire();
-                }
-
-                if (APP.bullets.length > APP.bulletsmax) {
-                    let spareBullet  = APP.bullets.shift();
-                    delete spareBullet;
-                }
+                if (APP.bullets.length > APP.bulletsmax) { let spareBullet  = APP.bullets.shift(); delete spareBullet; }
                 APP.bullets.forEach(function (bullet, bulletIndex) {
-                    if (bullet.y > APP.screenSize.y) {
-                        APP.bullets.splice(bulletIndex, 1);
-                        return;
-                    }
-                    bullet.draw();
-                    bullet.move();
-                    bullet.draw();
-
-                    // gun hit?
-                    if (bullet.collision(
-                            APP.gun.body.x-APP.gun.body.size,
-                            APP.gun.body.y-APP.gun.body.size,
-                            APP.gun.body.x+APP.gun.body.size,
-                            APP.gun.body.y+APP.gun.body.size
-                    )) {
-                        APP.drawExplosionAt(bullet.x, bullet.y, 10);
-                        document.getElementById('lives').value = Number(document.getElementById('lives').value) - 1;
-                        APP.bullets.splice(bulletIndex, 1);
-                        return;
-                    }
-
-                    // meteorite hit?
-                    APP.meteorites.forEach(function (meteorite, meteoriteIndex) {
-                        if(meteorite.collision(bullet.x, bullet.y, bullet.x+bullet.size, bullet.y+bullet.size)) {
-                            meteorite.size = meteorite.size- (bullet.size*2);
-                            APP.drawExplosionAt(bullet.x, bullet.y, 10);
-                            if (meteorite.size < 1) {
-                                APP.meteorites.splice(meteoriteIndex, 1);
-                                APP.addGems(100, bullet.x, bullet.y);
-                            }
-                            APP.bullets.splice(bulletIndex, 1);
-                            APP.addGems(10, bullet.x, bullet.y);
-                            return;
-                        }
-                    });
-
-                    // factory hit?
-                    APP.factories.forEach(function (factory, factoryIndex) {
-                        if(factory.collision(
-                                bullet.x-bullet.size,
-                                bullet.y-bullet.size,
-                                bullet.x+bullet.size,
-                                bullet.y+bullet.size
-                        )) {
-                            factory.size = factory.size - bullet.size;
-                            APP.drawExplosionAt(bullet.x, bullet.y, 10);
-                            if (factory.size < 1) {
-                                APP.factories.splice(factoryIndex, 1);
-                                APP.context.font = "48px serif";
-                                APP.context.fillText("KABOOM!", bullet.x, bullet.y);
-                            }
-                            APP.bullets.splice(bulletIndex, 1);
-                            return;
-                        }
-                    });
-
+                    if (bullet.y > APP.screenSize.y) { APP.bullets.splice(bulletIndex, 1); return; }
+                    bullet.draw(); bullet.move(); bullet.draw();
+                    if (bullet.collision(APP.gun.body.x-APP.gun.body.size, APP.gun.body.y-APP.gun.body.size, APP.gun.body.x+APP.gun.body.size, APP.gun.body.y+APP.gun.body.size)) { APP.spawnExplosion(bullet.x, bullet.y, 10); document.getElementById('lives').value = Number(document.getElementById('lives').value) - 1; APP.bullets.splice(bulletIndex, 1); return; }
+                    APP.meteorites.forEach(function (meteorite, meteoriteIndex) { if (meteorite.collision(bullet.x, bullet.y, bullet.x+bullet.size, bullet.y+bullet.size)) { meteorite.size = meteorite.size - (bullet.size * 2); APP.spawnExplosion(bullet.x, bullet.y, 10); if (meteorite.size < 1) { APP.meteorites.splice(meteoriteIndex, 1); APP.addGems(100, bullet.x, bullet.y); APP.showMessage('KABOOM!', bullet.x, bullet.y, 2000); } APP.bullets.splice(bulletIndex, 1); APP.addGems(10, bullet.x, bullet.y); return; } });
+                    APP.factories.forEach(function (factory, factoryIndex) { if (factory.collision(bullet.x-bullet.size, bullet.y-bullet.size, bullet.x+bullet.size, bullet.y+bullet.size)) { factory.takeDamage(bullet.size, bullet.x, bullet.y); APP.spawnExplosion(bullet.x, bullet.y, 10); if (factory.state === 'destroyed') { APP.factories.splice(factoryIndex, 1); APP.showMessage('KABOOM!', bullet.x, bullet.y, 2000); } APP.bullets.splice(bulletIndex, 1); return; } });
                 });
 
-                if (APP.meteorites.length > APP.meteoritesmax) {
-                    let spareMeteorite  = APP.meteorites.shift();
-                    delete spareMeteorite;
-                }
-                APP.meteorites.forEach(function (meteorite, index) {
-                    if (meteorite.y > APP.screenSize.y + meteorite.size) {
-                        APP.meteorites.splice(index, 1);
-                        return;
-                    }
-                    meteorite.move();
-                    meteorite.draw();
-                });
+                if (APP.meteorites.length > APP.meteoritesmax) { let spareMeteorite  = APP.meteorites.shift(); delete spareMeteorite; }
+                APP.meteorites.forEach(function (meteorite, index) { if (meteorite.y > APP.screenSize.y + meteorite.size) { APP.meteorites.splice(index, 1); return; } meteorite.move(); if (meteorite.type === 'meteorite') { APP.drawMeteorite(meteorite); } else { meteorite.draw(); } });
+                APP.meteorites.forEach(function (meteorite, meteoriteIndex) { if (meteorite.collision(APP.gun.body.x-APP.gun.body.size, APP.gun.body.y-APP.gun.body.size, APP.gun.body.x+APP.gun.body.size, APP.gun.body.y+APP.gun.body.size+50)) { APP.spawnExplosion(meteorite.x, meteorite.y, 20); document.getElementById('lives').value = Number(document.getElementById('lives').value) - 1; APP.meteorites.splice(meteoriteIndex, 1); return; } APP.factories.forEach(function (factory, factoryIndex) { if (factory.collision(meteorite.x-meteorite.size, meteorite.y-meteorite.size, meteorite.x+meteorite.size, meteorite.y+meteorite.size+50)) { factory.takeDamage(meteorite.size, meteorite.x, meteorite.y); APP.spawnExplosion(meteorite.x, meteorite.y, 20); if (factory.state === 'destroyed') { APP.factories.splice(factoryIndex, 1); APP.showMessage('KABOOM!', meteorite.x, meteorite.y, 2000); } APP.meteorites.splice(meteoriteIndex, 1); return; } }); });
 
-                APP.meteorites.forEach(function (meteorite, meteoriteIndex) {
-                    // meteorite hits gun?
-                    if (meteorite.collision(
-                            APP.gun.body.x-APP.gun.body.size,
-                            APP.gun.body.y-APP.gun.body.size,
-                            APP.gun.body.x+APP.gun.body.size,
-                            APP.gun.body.y+APP.gun.body.size+50
-                    )) {
-                        APP.drawExplosionAt(meteorite.x, meteorite.y, 20);
-                        document.getElementById('lives').value = Number(document.getElementById('lives').value) - 1;
-                        APP.meteorites.splice(meteoriteIndex, 1);
-                        return;
-                    }
-                    // meteorite hits factory?
-                    APP.factories.forEach(function (factory, factoryIndex) {
-                        if(factory.collision(
-                                meteorite.x-meteorite.size,
-                                meteorite.y-meteorite.size,
-                                meteorite.x+meteorite.size,
-                                meteorite.y+meteorite.size+50
-                        )) {
-                            factory.size = factory.size - meteorite.size;
-                            APP.drawExplosionAt(meteorite.x, meteorite.y, 20);
-                            if (factory.size < 1) {
-                                APP.factories.splice(factoryIndex, 1);
-                                APP.context.font = "48px serif";
-                                APP.context.fillText("KABOOM!", meteorite.x, meteorite.y);
-                            }
-                            APP.meteorites.splice(meteoriteIndex, 1);
-                            return;
-                        }
-                    });
-                });
+                if (APP.loopCounter % 100 === 0) { const addNumber = String(APP.loopCounter).length - 2; for (let i=0; i<addNumber; i++) { APP.meteoritesGenerator(); } if (!rndNum(0, 3)) { APP.meteoritesGenerator(APP.gun.body.x, Math.PI/2); } const rndFactoryIndex = rndNum(0, APP.factories.length-1); if (APP.factories.length > 0 && !rndFactoryIndex) { APP.meteoritesGenerator(APP.factories[rndFactoryIndex].x, Math.PI/2); } }
 
-                if (APP.loopCounter%100 === 0) {
-                    const addNumber = String(APP.loopCounter).length - 2;
-                    for (let i=0;i<addNumber;i++) {
-                        APP.meteoritesGenerator();
-                    }
-                    if (!rndNum(0, 3)) {
-                        APP.meteoritesGenerator(APP.gun.body.x, Math.PI/2);
-                    }
-                    const rndFactoryIndex = rndNum(0, APP.factories.length-1);
-                    if (APP.factories.length > 0 && !rndFactoryIndex) {
-                        APP.meteoritesGenerator(APP.factories[rndFactoryIndex].x, Math.PI/2);
-                    }
-                }
+                APP.factories.forEach(function (factory) { factory.draw(); if (APP.loopCounter % 1000 === 0 && factory.state !== 'destroyed') { APP.addGems(Math.floor(factory.size), factory.x, factory.y - 20); } if (APP.loopCounter % 1000 === 0 && rndNum(0,10) < 2) { let lives = Number(document.getElementById('lives').value); lives = lives + 1; document.getElementById('lives').value = lives; APP.showMessage('+1 ♥', factory.x, factory.y-20, 2000); } });
 
-                APP.factories.forEach(function (factory, index) {
-                    factory.draw();
-                    if (APP.loopCounter%1000 === 0) {
-                        APP.addGems(Math.floor(factory.size), factory.x, factory.y - 20);
-                    }
-                    if (APP.loopCounter%1000 === 0 && rndNum(0,10) < 2) {
-                        let lives = Number(document.getElementById('lives').value);
-                        lives = lives + 1;
-                        document.getElementById('lives').value = lives;
-                        APP.context.font = "48px serif";
-                        APP.context.fillText('+1 ♥', factory.x, factory.y-20);
-                    }
-                });
+                APP.updateExplosions();
+                if (APP.fullscreen.enabled) { APP.drawHUD(); }
+                APP.drawNotifications();
 
-                if (APP.factories.length < 1) {
-                    APP.gameOver = true;
-                }
-                if (Number(document.getElementById('lives').value) < 1) {
-                    APP.gameOver = true;
-                }
-
+                if (APP.factories.length < 1) { APP.gameOver = true; }
+                if (Number(document.getElementById('lives').value) < 1) { APP.gameOver = true; }
             },
 
-            addGems: function addGems(add, x, y) {
-                document.getElementById('gems').value = Number(document.getElementById('gems').value) + add;
-                if (x && y) {
-                    APP.context.font = "48px serif";
-                    APP.context.fillText(add, x, y);
-                }
-            },
+            addGems: function addGems(add, x, y) { document.getElementById('gems').value = Number(document.getElementById('gems').value) + add; if (x && y) { APP.showMessage('+'+add, x, y, 2000); } },
 
-            newGame: function newGame() {
-                APP.init();
-                APP.mainLoop();
-            },
+            newGame: function newGame() { APP.init(); APP.mainLoop(); },
 
-            controls: function controls(event) {
-                if (event == null) {
-                    return;
-                }
-                if(event.keyCode == 32 && event.target == document.body) {
-                    event.preventDefault();
-                }
-                if (event.keyCode === 0 || event.keyCode === 32) {
-                    if (event.type === 'keypress' || event.type === 'keydown') {
-                        APP.gun.fire = true;
-                    } else {
-                        APP.gun.fire = false;
-                    }
-                } else if (event.keyCode === 37) { // left
-                    if (event.type === 'keypress' || event.type === 'keydown') {
-                        APP.gun.turn = 'left';
-                    } else {
-                        APP.gun.turn = '';
-                    }
-                } else if (event.keyCode === 39) { // right
-                    if (event.type === 'keypress' || event.type === 'keydown') {
-                        APP.gun.turn = 'right';
-                    } else {
-                        APP.gun.turn = '';
-                    }
-                }
-            },
+            controls: function controls(event) { if (event == null) return; if (event.keyCode == 32 && event.target == document.body) { event.preventDefault(); } if (event.keyCode === 0 || event.keyCode === 32) { if (event.type === 'keypress' || event.type === 'keydown') { APP.gun.fire = true; } else { APP.gun.fire = false; } } else if (event.keyCode === 37) { if (event.type === 'keypress' || event.type === 'keydown') { APP.gun.turn = 'left'; } else { APP.gun.turn = ''; } } else if (event.keyCode === 39) { if (event.type === 'keypress' || event.type === 'keydown') { APP.gun.turn = 'right'; } else { APP.gun.turn = ''; } } },
 
-            gunTurnLeft: function gunTurnLeft() {
-                if(APP.gun.angle > Math.PI) {
-                    APP.gun.angle = APP.gun.angle - APP.gun.speed;
-                }
-            },
+            /* ---------- Gun ---------- */
+            gunTurnLeft: function gunTurnLeft() { if (APP.gun.angle > Math.PI) { APP.gun.angle = APP.gun.angle - APP.gun.speed; } },
+            gunTurnRight: function gunTurnRight() { if (APP.gun.angle < Math.PI*2) { APP.gun.angle = APP.gun.angle + APP.gun.speed; } },
+            gunFire: function gunFire() { let gems = Number(document.getElementById('gems').value); if (gems < 1) return; gems--; document.getElementById('gems').value = gems; const muzzleFire = APP.findPointInDirection(APP.gun.barrel.muzzle.x, APP.gun.barrel.muzzle.y, APP.gun.angle, 5); APP.spawnExplosion(muzzleFire.x, muzzleFire.y, 5); const shot = new Projectile(APP, muzzleFire.x, muzzleFire.y, APP.gun.angle, rndNum(4,6), 2.5, '#ffe58a'); shot.type = 'shot'; APP.bullets.push(shot); },
+            clearScreen: function clearScreen () { APP.context.clearRect(0, 0, APP.screenSize.x, APP.screenSize.y); },
+            drawExplosionAt: function drawExplosionAt_old(x, y, size) { APP.spawnExplosion(x, y, size || 10); },
+            findPointInDirection: function findPointInDirection(startX, startY, angle, range) { return { x: startX + range * Math.cos(angle), y: startY + range * Math.sin(angle) }; },
+            initGun: function initGun() { const length = 18; APP.gun = { body: { x: APP.screenSize.x / 2, y: APP.screenSize.y, size: 12 }, barrel: { muzzle: { x: APP.screenSize.x / 2, y: APP.screenSize.y - length }, breech: { x: APP.screenSize.x / 2, y: APP.screenSize.y } }, turn: '', speed: 0.08, fire: false, length: length, angle: Math.PI * 1.5 }; },
+            drawGun: function drawGun() { const ctx = APP.context; const gun = APP.gun; const baseW = 50, baseH = 5; const baseX = gun.body.x - baseW/2; const baseY = gun.body.y - baseH; ctx.save(); ctx.fillStyle = '#666'; ctx.strokeStyle = '#444'; ctx.lineWidth = 2; ctx.beginPath(); ctx.rect(baseX, baseY, baseW, baseH); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.arc(gun.body.x, gun.body.y, gun.body.size, Math.PI, Math.PI*2); ctx.fillStyle = '#595959'; ctx.fill(); ctx.stroke(); const muzzlePoint = APP.findPointInDirection(gun.barrel.breech.x, gun.barrel.breech.y, APP.gun.angle, APP.gun.length); gun.barrel.muzzle.x = muzzlePoint.x; gun.barrel.muzzle.y = muzzlePoint.y; ctx.beginPath(); ctx.moveTo(gun.barrel.breech.x, gun.barrel.breech.y); ctx.lineTo(gun.barrel.muzzle.x, gun.barrel.muzzle.y); ctx.lineWidth = 6; ctx.strokeStyle = '#444'; ctx.stroke(); const mb = APP.findPointInDirection(gun.barrel.muzzle.x, gun.barrel.muzzle.y, APP.gun.angle, 6); ctx.beginPath(); ctx.moveTo(gun.barrel.muzzle.x, gun.barrel.muzzle.y); ctx.lineTo(mb.x, mb.y); ctx.lineWidth = 4; ctx.strokeStyle = '#333'; ctx.stroke(); ctx.restore(); },
 
-            gunFire: function gunFire() {
-                let gems = Number(document.getElementById('gems').value);
-                if (gems < 1) {
-                    return;
-                }
-                gems--;
-                document.getElementById('gems').value = gems;
-
-                const muzzleFire = APP.findPointInDirection(
-                        APP.gun.barrel.muzzle.x,
-                        APP.gun.barrel.muzzle.y,
-                        APP.gun.angle, 5);
-                APP.drawExplosionAt(muzzleFire.x, muzzleFire.y, 5);
-                APP.bullets.push(new Projectile(APP, muzzleFire.x, muzzleFire.y, APP.gun.angle, rndNum(4,6)));
-            },
-
-            gunTurnRight: function gunTurnRight() {
-                if(APP.gun.angle < Math.PI*2) {
-                    APP.gun.angle = APP.gun.angle + APP.gun.speed;
-                }
-            },
-
-            clearScreen: function clearScreen () {
-                APP.context.clearRect(0, 0, APP.screenSize.x, APP.screenSize.y);
-                APP.context.lineWidth = 3;
-                APP.context.strokeStyle = '#999999';
-                APP.context.strokeRect(0, 0, APP.screenSize.x, APP.screenSize.y);
-            },
-
-            drawExplosionAt: function drawExplosionAt(x, y, size) {
-                if (!size) {
-                    size = 10;
-                }
-                APP.context.beginPath();
-                APP.context.arc(x, y, size, 0, 2 * Math.PI, false);
-                APP.context.fillStyle = 'red';
-                APP.context.fill();
-                APP.context.lineWidth = 1;
-                APP.context.strokeStyle = '#ff3300';
-                APP.context.stroke();
-            },
-
-            findPointInDirection: function findPointInDirection(startX, startY, angle, range) {
-                const result = {
-                    x: 0,
-                    y: 0,
-                };
-                result.x = startX + range * Math.cos(angle);
-                result.y = startY + range * Math.sin(angle);
-
-                return result;
-            },
-
-            initGun: function initGun() {
-                const length = 15;
-                APP.gun = {
-                    body: {
-                        x: APP.screenSize.x / 2,
-                        y: APP.screenSize.y,
-                        size: 10
-                    },
-                    barrel: {
-                        muzzle: {
-                            x: APP.screenSize.x / 2,
-                            y: APP.screenSize.y-length
-                        },
-                        breech: {
-                            x: APP.screenSize.x / 2,
-                            y: APP.screenSize.y
-                        }
-                    },
-                    turn: '', // 'left' '' 'right'
-                    speed: 0.08,
-                    fire: false, // false true
-                    length: length,
-                    angle: Math.PI*1.5 // Angle Math.PI - right, Math.PI*0.5 - down, Math.PI*1 - left, Math.PI*1.5 - top
-                };
-            },
-
-            drawGun: function drawGun() {
-                const ctx = APP.context;
-                const gun = APP.gun;
-
-                ctx.beginPath();
-                ctx.arc(gun.body.x, gun.body.y, gun.body.size, Math.PI, Math.PI*2);
-                ctx.stroke();
-
-                const muzzlePoint = APP.findPointInDirection(
-                        gun.barrel.breech.x,
-                        gun.barrel.breech.y,
-                        APP.gun.angle,
-                        APP.gun.length
-                );
-                gun.barrel.muzzle.x = muzzlePoint.x;
-                gun.barrel.muzzle.y = muzzlePoint.y;
-
-                ctx.beginPath();
-                ctx.moveTo(gun.barrel.breech.x, gun.barrel.breech.y);
-                ctx.lineTo(gun.barrel.muzzle.x, gun.barrel.muzzle.y);
-                ctx.lineWidth = 5;
-                ctx.stroke();
-            },
-
+            /* ---------- Factories placement (safer near gun) ---------- */
             initFactories: function initFactories() {
-                let lastPos = 0;
-                let newPos = 0;
-                for (let i=0; i<APP.factoriesMax;i++) {
-                    newPos = lastPos+10+rndNum(0,10);
-
-                    if (
-                            (newPos > (APP.gun.body.x-APP.gun.body.size-100)) &&
-                            (newPos < (APP.gun.body.x+APP.gun.body.size+100))
-                    ) {
-                        newPos = newPos + (APP.gun.body.size*2.5)+100;
-                    }
-                    if (newPos >= APP.screenSize.x-50) {
-                        break;
-                    }
-
-                    const factory = new Factory(APP, newPos, rndNum(20, 50));
-                    lastPos = factory.x + factory.size + 10;
-
-                    APP.factories.push(factory);
+                APP.factories = []; let x = 10; const marginRight = 10; const minGap = 12; const minGunClear = 60; // px от центра пушки
+                const gunX = APP.gun.body.x; const maxX = APP.screenSize.x - marginRight;
+                while (x < maxX && APP.factories.length < APP.factoriesMax) {
+                    const size = rndNum(28, 50);
+                    // пропустим зону вокруг пушки (по центру)
+                    const center = x + size/2; const leftForbidden = gunX - minGunClear; const rightForbidden = gunX + minGunClear;
+                    if (center > leftForbidden && center < rightForbidden) { x = rightForbidden + minGap; continue; }
+                    if (x + size > maxX) break;
+                    APP.factories.push(new Factory(APP, x, size));
+                    x += size + minGap + rndNum(0, 12);
                 }
             },
 
-            meteoritesGenerator: function meteoritesGenerator(x, direction) {
-                if (APP.meteorites.length < APP.meteoritesmax) {
-                    if (!x) {
-                        x = rndNum(0, APP.screenSize.x);
-                    }
-                    if (!direction) {
-                        direction = Math.PI*Math.random();
-                    }
-                    // x, y, direction, impulse, size, color
-                    const meteotite = new Projectile(
-                            APP,
-                            x,
-                            0,
-                            direction,
-                            0,
-                            10,
-                            '#666666'
-                    );
-                    APP.meteorites.push(meteotite);
-                }
+            /* ---------- HUD in fullscreen ---------- */
+            drawHUD: function() {
+                const ctx = APP.context; ctx.save();
+                const pad = 8; let x = 10, y = 8; const boxH = 26; ctx.font = 'bold 16px sans-serif'; ctx.textBaseline = 'middle';
+                function drawBox(lbl, val, iconFn) { const text = String(val); const w = Math.max(100, ctx.measureText(lbl + ': ' + text).width + 36); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x, y, w, boxH); if (iconFn) iconFn(x+6, y+boxH/2); ctx.fillStyle = '#ffe58a'; ctx.fillText(lbl + ': ' + text, x+28, y+boxH/2); x += w + 8; }
+                function icoGem(cx, cy){ ctx.save(); ctx.fillStyle = '#c6f2ff'; ctx.strokeStyle = '#4aa3c4'; ctx.beginPath(); ctx.moveTo(cx,cy-8); ctx.lineTo(cx-8,cy); ctx.lineTo(cx,cy+8); ctx.lineTo(cx+8,cy); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); }
+                function icoHeart(cx,cy){ ctx.save(); ctx.fillStyle = '#ff6060'; ctx.beginPath(); ctx.moveTo(cx, cy+4); ctx.bezierCurveTo(cx-10, cy-6, cx-6, cy-14, cx, cy-6); ctx.bezierCurveTo(cx+6, cy-14, cx+10, cy-6, cx, cy+4); ctx.fill(); ctx.restore(); }
+                function icoClock(cx,cy){ ctx.save(); ctx.strokeStyle = '#dfe7ff'; ctx.beginPath(); ctx.arc(cx,cy,8,0,Math.PI*2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx,cy-5); ctx.moveTo(cx,cy); ctx.lineTo(cx+4,cy); ctx.stroke(); ctx.restore(); }
+                function icoStar(cx,cy){ ctx.save(); ctx.fillStyle = '#ffd966'; ctx.beginPath(); for(let i=0;i<5;i++){ const a = -Math.PI/2 + i*2*Math.PI/5; const r1=8,r2=4; const x1=cx+Math.cos(a)*r1, y1=cy+Math.sin(a)*r1; const a2=a+Math.PI/5; const x2=cx+Math.cos(a2)*r2, y2=cy+Math.sin(a2)*r2; if(i===0) ctx.moveTo(x1,y1); else ctx.lineTo(x1,y1); ctx.lineTo(x2,y2);} ctx.closePath(); ctx.fill(); ctx.restore(); }
+                const gems  = document.getElementById('gems').value;
+                const lives = document.getElementById('lives').value;
+                const time  = document.getElementById('time').value;
+                const score = document.getElementById('score').value;
+                drawBox('Gems', gems,  icoGem);
+                drawBox('Lives', lives, icoHeart);
+                drawBox('Time', time,  icoClock);
+                drawBox('Score', score, icoStar);
+                ctx.restore();
             },
 
-            isTouchDevice: function isTouchDevice() {
-                return (("ontouchstart" in window) ||
-                        (navigator.maxTouchPoints > 0) ||
-                        (navigator.msMaxTouchPoints > 0));
-            }
+            /* ---------- Fullscreen button ---------- */
+            createFullscreenButton: function() {
+                const btn = document.createElement('button'); btn.innerText = '⤢';
+                Object.assign(btn.style, { position: 'fixed', right: '12px', bottom: '12px', zIndex: 9999, width: '44px', height: '44px', borderRadius: '8px', border: '1px solid #666', background: 'rgba(30,30,30,0.6)', color: '#fff', fontSize: '20px', cursor: 'pointer' });
+                btn.title = 'Toggle fullscreen'; btn.addEventListener('click', APP.toggleFullscreen);
+                document.body.appendChild(btn); APP.fullscreen.btn = btn;
+            },
+            toggleFullscreen: function() {
+                if (!APP.fullscreen.enabled) {
+                    APP.fullscreen.originalCss.width  = APP.canvas.style.width || (APP.screenSize.x + 'px');
+                    APP.fullscreen.originalCss.height = APP.canvas.style.height || (APP.screenSize.y + 'px');
+                    APP.canvas.style.width = '100vw'; APP.canvas.style.height = '100vh';
+                    if (APP.canvas.requestFullscreen) APP.canvas.requestFullscreen(); else if (APP.canvas.webkitRequestFullscreen) APP.canvas.webkitRequestFullscreen();
+                } else {
+                    if (document.exitFullscreen) document.exitFullscreen(); else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                }
+            },
+            wireFullscreenChange: function() {
+                document.addEventListener('fullscreenchange', function(){ const fs = !!document.fullscreenElement; APP.fullscreen.enabled = fs; if (!fs) { APP.canvas.style.width  = APP.fullscreen.originalCss.width || (APP.screenSize.x + 'px'); APP.canvas.style.height = APP.fullscreen.originalCss.height || (APP.screenSize.y + 'px'); } APP.fullscreen.btn.innerText = fs ? '⤡' : '⤢'; });
+            },
+
+            /* ---------- Asteroids ---------- */
+            makeRockShape: function (radius, segments) { const pts = []; const segs = Math.max(8, Math.floor(segments || 16)); for (let i = 0; i < segs; i++) { const a = (i / segs) * Math.PI * 2; const r = radius * (0.78 + Math.random() * 0.35); pts.push({ a, r }); } return pts; },
+            drawMeteorite: function (m) { const ctx = APP.context; m.rot += m.spin; const cx = m.x, cy = m.y; if (!isFinite(cx) || !isFinite(cy)) return; ctx.save(); ctx.translate(cx, cy); ctx.rotate(m.rot); ctx.beginPath(); for (let i = 0; i < m.rockShape.length; i++) { const { a, r } = m.rockShape[i]; const px = Math.cos(a) * r; const py = Math.sin(a) * r; if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); } ctx.closePath(); ctx.fillStyle = m.baseColor; ctx.strokeStyle = m.strokeColor; ctx.lineWidth = 2; ctx.fill(); ctx.stroke(); ctx.restore(); },
+            meteoritesGenerator: function meteoritesGenerator(x, direction) { if (APP.meteorites.length < APP.meteoritesmax) { if (!x) x = rndNum(0, APP.screenSize.x); if (!direction) direction = Math.PI * Math.random(); const size = 10; const m = new Projectile(APP, x, 0, direction, 0, size, '#666666'); m.type = 'meteorite'; m.baseColor = (Math.random() < 0.5) ? '#6b6765' : '#7a746f'; m.strokeColor = '#4f4a46'; m.spin = (Math.random() * 0.02) * (Math.random() < 0.5 ? -1 : 1); m.rot = Math.random() * Math.PI * 2; m.rockShape = APP.makeRockShape(size, 18 + Math.floor(Math.random() * 10)); m.smokeTrail = false; APP.meteorites.push(m); } },
+
+            isTouchDevice: function isTouchDevice() { return (("ontouchstart" in window) || (navigator.maxTouchPoints > 0) || (navigator.msMaxTouchPoints > 0)); }
         };
+
 </script>
 <div class="container text-center justify-content-center">
     <header>
